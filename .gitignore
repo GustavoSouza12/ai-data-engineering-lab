@@ -1,0 +1,24 @@
+# Secrets: never versioned
+.env
+.env.*
+*.pem
+*.key
+*.p8
+credentials.json
+secrets.json
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Pipeline outputs (ADR-0005): only data/raw/ is versioned
+data/staging/
+data/quarantine/
+
+# dbt and DuckDB
+transform/target/
+transform/logs/
+transform/dbt_packages/
+*.duckdb
+*.duckdb.wal
