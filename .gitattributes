@@ -1,0 +1,2 @@
+# A5: a amostra raw é versionada byte a byte (sem conversão de fim de linha nem de espaços).
+data/raw/** -text

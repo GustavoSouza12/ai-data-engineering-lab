@@ -25,8 +25,8 @@ Commit hashes from before T-027 refer to the old history, which was rebuilt; the
 | T-019 | Coordinator | Quarantine flow ADR | done | ADR-0011 |
 | T-020 | Reviewer + Governance | Review the F0.1 rework | done | Nothing blocking. Reviewer F1–F6 (F2 reproduced: invalid UTF-8 exited with 3; F5 checked: raw = generator byte for byte). Governance G-1–G-3 (logs) |
 | T-025 | Builder | Short round before the PR: test + README for rule F1, invalid UTF-8/unreadable CSV → exit 2 (F2), README without a false ordering claim (F4), unexpected error without exception text outside `--debug` (G-1), only the file name in messages (G-2) | done | Approved by the user ("short round and PR", 2026-11-19). Checked by the coordinator: 103 passed (exit 0); 284 = 272 + 12; F1 was already the code's behavior (test + README only). Reviewer and governance: nothing blocking |
-| T-027 | Coordinator + Builder | Whole project in English and no tool attribution on GitHub: translate code, tests, docs and `memory/`; keep the agent configuration local only; rebuild a short English history; delete and recreate the remote repository | in progress | User's decision (2026-11-19): delete and recreate the repo, new short history, agent configuration out of the repo, agents renamed to builder/reviewer/governance |
-| T-021 | Coordinator | Open the F0.1 PR | in progress | The first PR was opened and is removed with the old repository (T-027); reopen on the recreated repository. Merge only by the user; squash recommended |
+| T-027 | Coordinator + Builder | Whole project in English and no tool attribution on GitHub: translate code, tests, docs and `memory/`; keep the agent configuration local only; rebuild a short English history; delete and recreate the remote repository | done | User's decision (2026-11-19): delete and recreate the repo, new short history, agent configuration out of the repo, agents renamed to builder/reviewer/governance. Evidence: old repository deleted (0 forks), recreated as private, only `main` and the feature branch pushed, no tags; no tool attribution found in the PR, commits or tree on GitHub |
+| T-021 | Coordinator | Open the F0.1 PR | done | PR #1 on the recreated repository: https://github.com/GustavoSouza12/ai-data-engineering-lab/pull/1. Merge only by the user; squash recommended; no CI until F0.3 |
 | T-026 | Builder | F0.1 follow-up queue (not blocking): the byte position in the UTF-8 error is relative to the decoded chunk (confirmed: 20010 real, 3626 reported) → report the line or read as bytes; a column outside the contract in the header reaches staging without a `pii_level` (needs a decision: reject, drop or allow-list; ADR-0014); reserved names (`_source_file`, `_loaded_at`, `reject_reason`) or a duplicate header → exit 2. The `--debug` help warning and the `--run-ts` message without echo were done in T-027 | pending | F0.1 merge and the user's decision on extra columns |
 | T-013 | Builder | F0.2 — dbt (`dev` DuckDB and `snowflake`): `organizations` and `fx_rates` seeds, `orders` and `order_events` sources, `stg_*`, `int_orders__latest`, `fct_orders` with `amount_usd`, `org_summary` (case Task 1), dbt tests. Review requirements: `trim` before deduplicating (F3); detect conflicts across daily files (same version, different content) as a dbt test; `--debug` never enabled in a DAG (G-3) | pending | F0.1 merge |
 | T-014 | Builder | F0.3 — minimal load into Snowflake `RAW` (data and quarantine) and CI on GitHub Actions | pending | F0.2 merge and T-015 |
@@ -40,7 +40,7 @@ Commit hashes from before T-027 refer to the old history, which was rebuilt; the
 
 | ID | Feature | Description | State | Evidence |
 | --- | --- | --- | --- | --- |
-| TS-001 | F0.1 | A complete record with a unique key goes to staging | executed | revalidated: 103 passed, exit 0 (before T-027); revalidate after translation |
+| TS-001 | F0.1 | A complete record with a unique key goes to staging | executed | revalidated on `b5f007e` (after T-027): 104 passed, exit 0; 284 = 272 + 12 |
 | TS-002 | F0.1 | A required field that is empty or whitespace-only goes to quarantine with a `reject_reason` | executed | same as TS-001 |
 | TS-003 | F0.1 | ~~Every occurrence of a duplicate `order_id` goes to quarantine~~ replaced by TS-013 to TS-015 (ADR-0009) | replaced | — |
 | TS-004 | F0.1 | A required column missing from the header gives a clear error, with no partial output | executed | same as TS-001 |
@@ -69,6 +69,7 @@ A test only becomes `approved` with the user's explicit acceptance.
 
 ## Open items
 
-- T-027: translation → history rebuild → delete and recreate the remote → reopen the F0.1 PR (T-021) → merge by the user (squash recommended).
+- F0.1 PR #1: merge by the user (squash recommended).
+- Optional: reviewer + governance pass on the translated diff (`git diff main...feature/f0-1-ingestion`).
 - User decision: columns outside the contract in the header (T-026).
 - Acceptance of the F0.1 tests after review.
