@@ -91,7 +91,7 @@ def normalize_run_ts(run_ts: str) -> str:
     """
     try:
         parsed = datetime.fromisoformat(run_ts)
-    except ValueError as exc:
+    except ValueError:
         raise InvalidInputError("--run-ts is not a valid ISO 8601 timestamp") from None
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise InvalidInputError(
