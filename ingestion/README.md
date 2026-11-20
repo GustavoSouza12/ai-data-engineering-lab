@@ -125,3 +125,6 @@ uv run pytest -v
   version and quarantine the previous one. Rerunning with the same `--run-ts` fixes it.
 - **A8: fully empty lines are ignored.** `csv.DictReader` skips blank lines, so they do not
   count toward the input nor the quarantine.
+- **T-026: the UTF-8 error position can be wrong above about 8 KB.** The position reported
+  for a byte that is not UTF-8 is relative to the decoded chunk, not to the file, so it can
+  be wrong for files larger than about 8 KB. Tracked as follow-up T-026.
