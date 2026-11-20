@@ -1,7 +1,7 @@
 # State
 
 - Roadmap phase: **0, walking skeleton** (ADR-0008) — CSV → Python → Snowflake `RAW` → dbt `stg_orders` → tests, on synthetic `orders`
-- Current step: F0.1 done on its branch and reviewed; T-027 in progress (project in English, agent configuration local only, history rebuilt, remote recreated); then the F0.1 PR is reopened (T-021)
+- Current step: F0.1 PR #1 open on the recreated repository, waiting for the user's merge (squash recommended) and test acceptance; T-027 done
 - Workspace: root of this repository
 - Agent configuration: local only, not versioned (D-006, T-027); `memory/` is the only versioned record of the workflow
 - Environment checked (2026-11-19): Git 2.56.0, Python 3.14.3 and 3.11, uv 0.11.3, pip 26.0.1, GitHub CLI authenticated (call it by full path in older sessions: `C:\Program Files\GitHub CLI\gh.exe`)
@@ -23,7 +23,7 @@ Coverage of the reference technical case: Task 1 → F0.2 (`org_summary`); Task 
 
 ## Latest result
 
-F0.1 before T-027: the coordinator reran `uv run pytest` → 103 passed, exit 0; validator on the raw sample 284 = 272 + 12, exit 0; a 0xFF byte → exit 2 with only the file name. Reviewer and governance: nothing blocking. Confirmed by the coordinator: the byte position in the UTF-8 error is relative to the decoded chunk (20010 real, 3626 reported) → T-026. To be revalidated after the translation.
+F0.1 after T-027 (2026-11-19, tip `b5f007e`): the coordinator reran `uv run pytest` → 104 passed, exit 0; validator on the raw sample → `reconciliation: OK (284 = 272 + 12)`, exit 0. The old repository was deleted (0 forks) and recreated as private; only `main` and `feature/f0-1-ingestion` were pushed, no tags. A GitHub check of the PR, commit messages, authors and file tree found no tool attribution. PR: https://github.com/GustavoSouza12/ai-data-engineering-lab/pull/1. Known follow-up: the byte position in the UTF-8 error is relative to the decoded chunk → T-026.
 
 ## Active constraints
 
