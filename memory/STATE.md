@@ -1,7 +1,7 @@
 # State
 
 - Roadmap phase: **0, walking skeleton** (ADR-0008) — CSV → Python → Snowflake `RAW` → dbt `stg_orders` → tests, on synthetic `orders`
-- Current step: F0.1 PR #1 open on the recreated repository, waiting for the user's merge (squash recommended) and test acceptance; T-027 done
+- Current step: F0.1 PR #1 ready after the reviewer round (T-028), waiting for the user's merge (squash recommended) and test acceptance; next: F0.2a (T-013), scope approved, starts from `main` after the merge
 - Workspace: root of this repository
 - Agent configuration: local only, not versioned (D-006, T-027); `memory/` is the only versioned record of the workflow
 - Environment checked (2026-11-19): Git 2.56.0, Python 3.14.3 and 3.11, uv 0.11.3, pip 26.0.1, GitHub CLI authenticated (call it by full path in older sessions: `C:\Program Files\GitHub CLI\gh.exe`)
@@ -15,7 +15,8 @@
 | ID | Branch | Delivers |
 | --- | --- | --- |
 | F0.1 | `feature/f0-1-ingestion` | uv environment, synthetic generator, structural validation, quarantine, reconciliation, pytest |
-| F0.2 | `feature/f0-2-dbt-staging` | dbt project in `transform/` with `dev` (DuckDB) and `snowflake` targets, `stg_orders`, dbt tests |
+| F0.2a | `feature/f0-2-dbt-staging` | dbt-duckdb project in `transform/`: seeds, `stg_orders`, `int_orders__latest`, `fct_orders` (`amount_usd`), `org_summary`, dbt tests, one end-to-end local command (T-013) |
+| F0.2b | `feature/f0-2b-order-events` | `order_events` and completion dates (T-029, ADR-0015) |
 | F0.3 | `feature/f0-3-snowflake-raw-ci` | Minimal load into Snowflake `RAW` and GitHub Actions with pytest + dbt (DuckDB) |
 | F0.4 | `feature/f0-4-orders-json` | Orders JSON, NAV and reconciliation with `orders` (ADR-0014) |
 
