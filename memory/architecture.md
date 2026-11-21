@@ -1,7 +1,7 @@
 # Data platform architecture v0: SUBSCRIBE lab
 
 > **Status:** v0, to be validated. This is a **lab with synthetic data** that reproduces SUBSCRIBE's data scope. Nothing here uses the company's real code, schemas or data.
-> **Use:** architecture memory for the coordinator and the agents. Before any task, read this file, `STATE.md` and the decisions in `decisions/`.
+> **Use:** architecture memory for the first mate and the crewmates (ADR-0016). Before any task, read this file, `STATE.md` and the decisions in `decisions/`.
 
 ---
 
@@ -349,7 +349,7 @@ tests/            singular: order lifecycle, reconciliation, no PII in marts
 macros/           governance (tags, row access), publish_gold (SWAP), generate_schema_name
 ```
 
-### Rules (the reviewer checks)
+### Rules (the architecture Scout checks)
 - Every gold: PK with `unique` + `not_null`, description, `meta.owner`.
 - Every column: `meta.pii_level` (`restricted`, `confidential`, `internal`, `public`).
 - Input tests on staging, so dbt skips gold when the input is wrong.
@@ -411,10 +411,10 @@ Signals: freshness, volume, **sum of amounts in USD against the 7-day average** 
 ## 13. Agents (how they build this platform)
 | Agent | Touches | Never |
 |---|---|---|
-| Coordinator | Plans, breaks work into tasks, updates `STATE.md` | Merges |
-| Builder | dbt code, DAGs, governance SQL, tests | Writes to production |
-| Reviewer | Reads the diff and test results; comments | Changes code |
-| Governance | Reads code and metadata (`GOVERNANCE_AUDITOR` role) | Reads data, grants access, changes policies |
+| First mate | Plans, breaks work into tasks, writes worker briefs | Writes to the repository, merges |
+| Ship crewmate | dbt code, DAGs, governance SQL, tests, `memory/` (including `STATE.md`) on its branch; pushes it and opens the PR | Writes to production, merges, touches `main` |
+| Architecture Scout | Reads the diff and test results; reports against this file | Changes code |
+| Governance Scout | Reads code and metadata (`GOVERNANCE_AUDITOR` role) | Reads data, grants access, changes policies |
 
 Agent conclusions are auxiliary checks, not guarantees. Approval is human.
 
@@ -432,6 +432,8 @@ Runtime and current role names (first mate, Ship crewmate, architecture and gove
 | 6 | Partner shares + file feed |
 | 7 | Data products: freemium, fund quality |
 | 8 | Semantic layer + MCP |
+
+The vertical-slice MVP (ADR-0017) pulls parts of phases 3 to 5 forward and loads Snowflake `RAW` right after the local slice runs.
 
 ## 15. Assumptions to confirm at SUBSCRIBE (not verified)
 - [ ] Where dbt runs today and whether there is an orchestrator (Airflow does not exist yet, from what I heard)

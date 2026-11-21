@@ -1,7 +1,7 @@
 # State
 
 - Roadmap phase: **0, walking skeleton** (ADR-0008), moving to the vertical-slice MVP (ADR-0017)
-- Current step: F0.1 merged (PR #1, squash `bd6af53`). T-030 brings T-028 and the approved F0.2a scope to `main` and records ADR-0016 to ADR-0018. Next: the MVP backlog in `TASKS.md` (from T-031), after the user approves the reordered critical path (ADR-0017, C1: Snowflake `RAW` load right after the local slice runs)
+- Current step: F0.1 merged (PR #1, squash `bd6af53`). T-030 brings T-028 and the approved F0.2a scope to `main` and records ADR-0016 to ADR-0018. Critical path approved (ADR-0017). Next: MVP-01, which adds the MVP backlog to `TASKS.md` from T-031; the Snowflake `RAW` load (MVP-15a) comes right after MVP-06, before the trial ends around 2026-12-11
 - Workspace: root of this repository
 - Agent runtime: Firstmate (ADR-0016): first mate, Ship crewmate, architecture and governance Scouts. Flow in `memory/agent-workflow.md`. Agent configuration is local only, not versioned (D-006, T-027)
 - Environment: the earlier Windows setup (Git 2.56.0, Python 3.11, uv 0.11.3, GitHub CLI) was checked on 2026-11-19 by the previous runtime. On the Firstmate machine (2026-11-21) uv and pytest are not installed yet

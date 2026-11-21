@@ -2,7 +2,7 @@
 
 - Date: 2026-11-21
 - Status: accepted (decided by the user on 2026-11-21)
-- Amends: ADR-0006 (who pushes and opens the PR; review step). Reinterprets: D-001, D-002 and D-006
+- Amends: ADR-0006 (who pushes and opens the PR; review step). Reinterprets: D-001, D-002, D-004, D-006 and D-007
 
 ## Context
 The workflow in `memory/` (ADR-0006, `ACCESS.md`, `TASKS.md`, `STATE.md`) was run by a single agent session with a coordinator and three subagents (builder, reviewer, governance). That session has ended. The lab now runs on Firstmate, an orchestrator that dispatches isolated worker agents ("crewmates"), each on its own git worktree and branch.
@@ -25,11 +25,16 @@ Changes to ADR-0006:
 Rules that every first mate brief carries:
 - `memory/TASKS.md` is the official backlog, continuing the existing numbering. The first mate keeps only a mirror outside the repository.
 - Everything in the repository (code, docs, `memory/`, commit messages, PR titles and bodies) is in English.
-- No tool attribution anywhere: no `Co-Authored-By` trailer, no "Generated with" line, in commits, PRs or files. Worker agents are configured not to add it (for Claude Code, `includeCoAuthoredBy: false` or equivalent). Both Scouts check this on every review.
+- No tool attribution anywhere: no `Co-Authored-By` trailer, no "Generated with" line, in commits, PRs or files. Worker agents have commit and PR attribution disabled in their local configuration. Both Scouts check this on every review.
 - One writing worker per set of files at a time (`ACCESS.md`). Scouts can run together.
-- Snowflake work, credentials, resource creation and credit spend require the user's explicit approval, as before (ADR-0008).
+- Snowflake work, credentials, cloud resource creation and credit spend require the user's explicit approval. This ADR states the rule; `ACCESS.md` applies it.
 
-D-002 ("only the coordinator writes `memory/`") now reads: `memory/` changes are made by a Ship crewmate, under the first mate's instructions, in a PR the user merges. Scouts never write `memory/`.
+How the earlier decisions read now:
+- D-001: the coordinator is now the first mate; builder, reviewer and governance are now the Ship crewmate and the two Scouts.
+- D-002 ("only the coordinator writes `memory/`"): `memory/` changes are made by a Ship crewmate, under the first mate's instructions, in a PR the user merges. Scouts never write `memory/`.
+- D-004 (a PR only after explicit authorization): the user's approval of a task's scope authorizes the Ship crewmate to open that task's PR. Merge stays human-only.
+- D-006: the agent runtime is now Firstmate; agent configuration stays local and unversioned.
+- D-007 (mentoring mode): now carried by the first mate.
 
 The day-to-day flow is in `memory/agent-workflow.md`.
 
@@ -38,4 +43,4 @@ The day-to-day flow is in `memory/agent-workflow.md`.
 - Keep a backlog only in Firstmate: the repository would stop being the record of the work.
 
 ## Consequences
-The Ship crewmate's limits (no merge, no `main`, no credentials) are still instructions, not technical blocks; there is no branch protection yet (ADR-0017, C2). The governance Scout checks them on every PR.
+The limits on every crewmate are instructions in its brief, not technical blocks: the Ship crewmate's (no merge, no `main`, no credentials) and the Scouts' read-only rule (no commit, push, PR comment or GitHub review), since a Scout also runs in a writable worktree with an authenticated GitHub CLI. There is no branch protection yet (ADR-0017, C2). The governance Scout checks these limits on every PR.

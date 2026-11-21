@@ -17,13 +17,15 @@ Runtime and role mapping: ADR-0016. Flow: `memory/agent-workflow.md`.
 
 | Role | Can read | Can write |
 | --- | --- | --- |
-| User | Everything | Approves scope and open calls; approves Snowflake, credential and credit use; the only one who merges, on GitHub |
+| User | Everything | Approves scope and open calls; approves Snowflake, cloud resource, credential and credit use; the only one who merges, on GitHub |
 | First mate (orchestrator) | Repository, `memory/` and PRs | Nothing in the repository directly. Writes worker briefs and keeps a mirror of `memory/TASKS.md` outside the repository |
-| Ship crewmate | Repository and `memory/` | Only its own worktree and `feature/<id>-<topic>` branch: code, tests and, when the brief says so, `memory/`. May push that branch and open a PR. Never merges, never pushes to or commits on `main`, never edits `.env` or the local agent configuration |
-| Architecture Scout | Repository, `memory/` and the PR | Nothing. Read-only |
-| Governance Scout | Repository, `memory/` and the PR | Nothing. Read-only |
+| Ship crewmate | Repository and `memory/` | Only its own worktree and `feature/<id>-<topic>` branch: code, tests and, when the brief says so, `memory/`. May push that branch and open a PR; no force-push after review has started unless the Scouts review again. Never merges, never pushes to or commits on `main`, never edits `.env` or the local agent configuration |
+| Architecture Scout | Repository, `memory/` and the PR | Nothing: no commit, push, PR comment or GitHub review. Read-only by brief (ADR-0016) |
+| Governance Scout | Repository, `memory/` and the PR | Nothing: no commit, push, PR comment or GitHub review. Read-only by brief (ADR-0016) |
 
 No agent reads, prints or stores credentials. Agents work against dev targets only (local DuckDB; Snowflake only with the user's approval) and never against production resources.
+
+No agent deploys to production; production changes happen only through CI/CD after the user merges. Creating any cloud resource (Snowflake, Astro, GitHub secrets or environments) and spending credits need the user's explicit approval.
 
 ## Concurrency
 
