@@ -7,11 +7,11 @@ History of D-001 to D-007. New architecture decisions live in `memory/decisions/
 | ADR | Topic | Status |
 | --- | --- | --- |
 | [ADR-0001](decisions/ADR-0001-decision-format.md) | Format and location of decisions | accepted |
-| [ADR-0002](decisions/ADR-0002-orders-contract-phase0.md) | Phase 0 `orders` dataset and contract | accepted |
+| [ADR-0002](decisions/ADR-0002-orders-contract-phase0.md) | Phase 0 `orders` dataset and contract | accepted, amended by ADR-0009 and ADR-0018 |
 | [ADR-0003](decisions/ADR-0003-duplicate-ids.md) | Reject every occurrence of a duplicate ID | superseded by ADR-0009 |
 | [ADR-0004](decisions/ADR-0004-local-stack.md) | Python 3.11 + uv + pytest + dbt-duckdb | accepted |
 | [ADR-0005](decisions/ADR-0005-structure-and-data-in-git.md) | Folder structure and data in git | accepted |
-| [ADR-0006](decisions/ADR-0006-git-github-agent-flow.md) | Git/GitHub flow with agents | accepted |
+| [ADR-0006](decisions/ADR-0006-git-github-agent-flow.md) | Git/GitHub flow with agents | accepted, amended by ADR-0016 |
 | [ADR-0007](decisions/ADR-0007-lab-confidentiality.md) | Lab confidentiality | accepted |
 | [ADR-0008](decisions/ADR-0008-walking-skeleton.md) | Walking skeleton: Snowflake and dbt already in phase 0 | accepted |
 | [ADR-0009](decisions/ADR-0009-orders-versioning.md) | `orders` versioning: exact duplicate, version and conflict | accepted |
@@ -21,6 +21,9 @@ History of D-001 to D-007. New architecture decisions live in `memory/decisions/
 | [ADR-0013](decisions/ADR-0013-currencies.md) | Amounts in several currencies: `amount_usd` | accepted |
 | [ADR-0014](decisions/ADR-0014-orders-json.md) | Orders JSON and schema changes | accepted (design) |
 | [ADR-0015](decisions/ADR-0015-state-and-events.md) | State (`orders`) × events (`order_events`) | accepted |
+| [ADR-0016](decisions/ADR-0016-firstmate-agent-runtime.md) | Firstmate as agent runtime | accepted |
+| [ADR-0017](decisions/ADR-0017-vertical-slice-mvp.md) | Vertical-slice MVP (C1–C5, T1–T12) | accepted; critical path pending approval |
+| [ADR-0018](decisions/ADR-0018-synthetic-pii-placeholders.md) | Synthetic PII as obvious placeholders | accepted |
 
 Runbooks in `memory/runbooks/` (RB-001: a metric jumped).
 
@@ -83,3 +86,7 @@ Runbooks in `memory/runbooks/` (RB-001: a metric jumped).
 - Status: accepted
 - Decision: the coordinator explains the why of each step and names the AI Engineering and AI Data Engineering concepts involved, with one optional exercise per step.
 - Reason: the lab also serves to train the user as an AI Data Engineer.
+
+## Note on D-001, D-002 and D-006 (2026-11-21)
+
+The runtime changed to Firstmate (ADR-0016). The coordinator is now the first mate; builder, reviewer and governance are now the Ship crewmate and the architecture and governance Scouts. D-002 now reads: `memory/` is changed by a Ship crewmate under the first mate's instructions, in a PR the user merges.

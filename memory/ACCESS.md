@@ -2,7 +2,7 @@
 
 ## Allowed data
 
-Synthetic data only, with no correspondence to real people.
+Synthetic data only, with no correspondence to real people. PII-shaped columns use obvious placeholders (ADR-0018).
 
 ## Never store
 
@@ -13,20 +13,25 @@ This data never enters `memory/`, code, tests or commit messages.
 
 ## Roles
 
+Runtime and role mapping: ADR-0016. Flow: `memory/agent-workflow.md`.
+
 | Role | Can read | Can write |
 | --- | --- | --- |
-| Coordinator (main conversation) | Repository and `memory/` | `memory/`. The local agent configuration (not versioned) and `.gitignore` only with the user's explicit approval. Creates branches, pushes and opens PRs per ADR-0006. Does not implement the pipeline. Does not merge. |
-| Builder | Approved scope | Code and tests for that scope, committing only on the feature branch it was given. Does not push, merge, open PRs or create remotes. Does not write to `memory/`, the agent configuration or `.env` (an instruction-level restriction, checked by governance). |
-| Reviewer | Code, tests and `memory/` | Nothing. Enforced by a read-only tool list (read, search, list). |
-| Governance | Code, tests and `memory/` | Nothing. Enforced by a read-only tool list (read, search, list). |
+| User | Everything | Approves scope and open calls; approves Snowflake, credential and credit use; the only one who merges, on GitHub |
+| First mate (orchestrator) | Repository, `memory/` and PRs | Nothing in the repository directly. Writes worker briefs and keeps a mirror of `memory/TASKS.md` outside the repository |
+| Ship crewmate | Repository and `memory/` | Only its own worktree and `feature/<id>-<topic>` branch: code, tests and, when the brief says so, `memory/`. May push that branch and open a PR. Never merges, never pushes to or commits on `main`, never edits `.env` or the local agent configuration |
+| Architecture Scout | Repository, `memory/` and the PR | Nothing. Read-only |
+| Governance Scout | Repository, `memory/` and the PR | Nothing. Read-only |
+
+No agent reads, prints or stores credentials. Agents work against dev targets only (local DuckDB; Snowflake only with the user's approval) and never against production resources.
 
 ## Concurrency
 
-One writer at a time for the same files. Reviewer and governance can run together. The builder never runs in parallel with another agent that changes files.
+One writing worker at a time for the same set of files. The architecture and governance Scouts can run together.
 
 ## Git and publishing
 
-Remote `origin`: private GitHub repository. PR flow defined in ADR-0006 (accepted): private repository, PR opened by the coordinator with the user's authorization, merge only by the user on GitHub. Everything published is in English and carries no tool attribution.
+Remote `origin`: private GitHub repository. PR flow in ADR-0006 as amended by ADR-0016: the Ship crewmate pushes its branch and opens the PR, both Scouts review it, merge only by the user on GitHub. Everything published is in English and carries no tool attribution (no `Co-Authored-By`, no "Generated with"); both Scouts check this on every PR.
 
 ## Access matrices
 

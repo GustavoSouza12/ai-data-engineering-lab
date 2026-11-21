@@ -418,6 +418,8 @@ Signals: freshness, volume, **sum of amounts in USD against the 7-day average** 
 
 Agent conclusions are auxiliary checks, not guarantees. Approval is human.
 
+Runtime and current role names (first mate, Ship crewmate, architecture and governance Scouts): ADR-0016 and `memory/agent-workflow.md`.
+
 ## 14. Lab roadmap
 | Phase | Delivers |
 |---|---|

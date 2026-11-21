@@ -3,6 +3,7 @@
 - Date: 2026-11-19
 - Status: accepted on 2026-11-19 (private remote created with the user's authorization)
 - Partially supersedes: D-004 (pull requests exist once an authorized remote exists; merge stays human-only)
+- Amended by: ADR-0016 (Firstmate runtime: the Ship crewmate pushes its branch and opens the PR; architecture and governance Scouts review it; merge stays human-only)
 
 ## Context
 The user wants to see the full cycle: features on branches, agent commits, tests, review and human approval on GitHub. The architecture asks for "everything through PRs" and a protected `main`.
