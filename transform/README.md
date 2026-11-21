@@ -13,23 +13,27 @@ scripts/run_local_pipeline.sh
 ```
 
 It runs `uv sync --locked`, the generator, the validator (into `data/staging/orders/` and
-`data/quarantine/orders/`) and `dbt build`, and stops at the first step that fails. On the
-sample, `dbt build` exits 0 with 3 warnings (see "Semantic tests" below).
+`data/quarantine/orders/`, with the summary JSON in `data/reports/`), the batch guard, the
+RAW load (`raw.orders` and `raw.orders_quarantine` in `transform/lab_dev.duckdb`, see
+`ingestion/README.md`) and `dbt build`, and stops at the first step that fails. A summary
+left by an earlier run is deleted before the validator runs, so the guard only reads the
+current one. On the sample, `dbt build` exits 0 with 3 warnings (see "Semantic tests" below).
+Rerunning it replaces the day in RAW and gives the same results.
 
-To run only dbt (after the validator):
+To run only dbt (after the RAW load):
 
 ```
 cd transform
 uv run dbt build --profiles-dir .
 ```
 
-`LAB_DUCKDB_PATH` overrides the DuckDB file and the `orders_staging_dir` var overrides the
-folder of validated CSVs. Both are relative to the directory dbt runs from.
+`LAB_DUCKDB_PATH` overrides the DuckDB file, relative to the directory dbt runs from. The
+`raw` schema must be in that same file: point `load_raw --database` at it.
 
 ## Lineage
 
 ```
-data/staging/orders/*.csv (source orders_staging.orders, every column as text)
+raw.orders                 table  source raw.orders, every column as text (ingestion/load_raw.py)
   -> stg_orders            view   trim (like Python str.strip), then drop exact duplicates, then cast
   -> int_orders__latest    view   one row per order_id, latest updated_at (ADR-0009)
   -> fct_orders            table  + rate_to_usd and amount_usd at the submitted_at date (ADR-0013)
@@ -37,8 +41,9 @@ data/staging/orders/*.csv (source orders_staging.orders, every column as text)
 seeds: organizations (ORG-001 to ORG-020), fx_rates (2026-11-01 to 2026-11-12, USD/EUR/BRL)
 ```
 
-The source reads every `*.csv` in the staging folder, so validated files of several days
-are combined. Copies of the same version in different files are exact duplicates
+`raw.orders` holds every loaded daily file (one `_source_file` each), so validated files of
+several days are combined. `raw.orders_quarantine` is declared as a source for its
+governance metadata; no model reads it. Copies of the same version in different files are exact duplicates
 (compared on the contract columns, after trimming) and only the first load is kept.
 
 On the sample: 272 validated rows -> 270 in `stg_orders` -> 190 in `int_orders__latest` and
@@ -83,8 +88,8 @@ stores its failures (`store_failures`) in the `main_dbt_test__audit` schema. On 
 uv run pytest transform/integration_tests -v
 ```
 
-They cover TS-025 and TS-026. They run the validator and `dbt build` into a temporary directory (nothing is written to the
-repository) and check the counts above, the stored failures, `amount_usd`, the governance
+They cover TS-025 and TS-026. They run the validator, the RAW loader and `dbt build` into a
+temporary directory (nothing is written to the repository) and check the counts above, the stored failures, `amount_usd`, the governance
 metadata and, with the two-file fixture in `integration_tests/fixtures/cross_file_conflict/`,
 that a conflict across daily files fails the build.
 

@@ -1,19 +1,20 @@
 version: 2
 
 sources:
-  - name: orders_staging
+  - name: raw
     description: >
-      Validated orders CSVs written by ingestion/validate_orders.py (F0.1) under
-      data/staging/orders/. Every column is read as text; staging trims and casts.
-      MVP-06 switches this source to the RAW layer.
+      Local DuckDB RAW layer (MVP-06) written by ingestion/load_raw.py from the
+      validator outputs, in the same DuckDB file as the dev target. Every column
+      is text, exactly as received; staging trims and casts. Mirrors what
+      COPY INTO will load into Snowflake RAW (MVP-15a).
+    schema: raw
     meta:
       owner: data-engineering
-      external_location: >-
-        read_csv('{{ var("orders_staging_dir") }}/*.csv',
-                 header = true, all_varchar = true, union_by_name = true)
     tables:
       - name: orders
-        description: One row per order version that passed structural validation (ADR-0009).
+        description: >
+          One row per order version that passed structural validation (ADR-0009).
+          Replaced per _source_file on every load.
         columns:
           - name: order_id
             meta: {pii_level: internal}
@@ -38,4 +39,36 @@ sources:
           - name: _source_file
             meta: {pii_level: internal}
           - name: _loaded_at
+            meta: {pii_level: internal}
+      - name: orders_quarantine
+        description: >
+          Rows the validator quarantined, with reject_reason (ADR-0011). Same columns
+          and pii_level as raw.orders. Replaced per _source_file in the same
+          transaction as raw.orders. No model reads it.
+        columns:
+          - name: order_id
+            meta: {pii_level: internal}
+          - name: organization_id
+            meta: {pii_level: internal}
+          - name: investor_id
+            meta: {pii_level: internal}
+          - name: fund_id
+            meta: {pii_level: internal}
+          - name: amount
+            meta: {pii_level: confidential}
+          - name: currency
+            meta: {pii_level: internal}
+          - name: channel
+            meta: {pii_level: internal}
+          - name: status
+            meta: {pii_level: internal}
+          - name: submitted_at
+            meta: {pii_level: internal}
+          - name: updated_at
+            meta: {pii_level: internal}
+          - name: _source_file
+            meta: {pii_level: internal}
+          - name: _loaded_at
+            meta: {pii_level: internal}
+          - name: reject_reason
             meta: {pii_level: internal}

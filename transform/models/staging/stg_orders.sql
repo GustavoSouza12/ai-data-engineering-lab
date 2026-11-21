@@ -14,7 +14,7 @@
 
 with source as (
 
-    select * from {{ source('orders_staging', 'orders') }}
+    select * from {{ source('raw', 'orders') }}
 
 ),
 
