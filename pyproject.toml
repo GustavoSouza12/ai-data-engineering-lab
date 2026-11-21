@@ -11,10 +11,19 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8",
+    "ruff>=0.17.6",
+    "sqlfluff>=4.5.0",
 ]
 
 [tool.uv]
 package = false
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+# Explicit set so a newer ruff default cannot turn CI red on its own.
+select = ["E4", "E7", "E9", "F", "I", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["ingestion/tests", "transform/integration_tests"]
