@@ -3,6 +3,7 @@
 - Date: 2026-11-19
 - Status: accepted (user's choice)
 - Changes: the roadmap in section 14 of `memory/architecture.md` (order of phases 0 to 2) and ADR-0004 (DuckDB is no longer the only target)
+- Changed by: ADR-0017 (MVP sequence: the Snowflake `RAW` load comes right after the local slice, MVP-15a after MVP-06)
 
 ## Context
 The roadmap builds one layer per phase: Python (0), Snowflake (1), dbt (2). That way, integration between the pieces only shows up late. The lab's goal is to see the real AI Data Engineering flow end to end.
