@@ -1,13 +1,13 @@
 # State
 
 - Roadmap phase: **0, walking skeleton** (ADR-0008), moving to the vertical-slice MVP (ADR-0017)
-- Current step: F0.1 merged (PR #1, squash `bd6af53`). T-030 brings T-028 and the approved F0.2a scope to `main` and records ADR-0016 to ADR-0018. Critical path approved (ADR-0017). MVP-01 (T-031) adds the MVP backlog to `TASKS.md` (T-031 to T-048); the Snowflake `RAW` load (MVP-15a) comes right after MVP-06, before the trial ends around 2026-12-11
+- Current step: F0.1 merged (PR #1, squash `bd6af53`). T-030 merged (PR #2, squash `38f40ec`): T-028 and the approved F0.2a scope are on `main`, with ADR-0016 to ADR-0018. Critical path approved (ADR-0017). MVP-01 (T-031) adds the MVP backlog to `TASKS.md` (T-031 to T-048); the Snowflake `RAW` load (MVP-15a) comes right after MVP-06, before the trial ends around 2026-12-11
 - Delivery: MVP work proceeds as stacked PRs; each task branch builds on the previous task's branch and its PR targets it; the user reviews and merges them in order (2026-11-21)
 - Workspace: root of this repository
 - Agent runtime: Firstmate (ADR-0016): first mate, Ship crewmate, architecture and governance Scouts. Flow in `memory/agent-workflow.md`. Agent configuration is local only, not versioned (D-006, T-027)
 - Environment: the earlier Windows setup (Git 2.56.0, Python 3.11, uv 0.11.3, GitHub CLI) was checked on 2026-11-19 by the previous runtime. On the Firstmate WSL machine (2026-11-21) uv is installed
 - Git: branch `main`, remote `origin` = **private** repository `ai-data-engineering-lab` on GitHub (recreated in T-027). No CI and no branch protection yet (ADR-0017, C2)
-- Last update: 2026-11-21, Ship crewmate under the first mate (T-030)
+- Last update: 2026-11-21, Ship crewmate under the first mate (T-031)
 - Data: synthetic only; PII-shaped columns use obvious placeholders (ADR-0002, ADR-0007, ADR-0018)
 - Language: everything in the repository is in English; nothing published carries tool attribution (T-027, ADR-0016)
 
@@ -21,7 +21,7 @@
 | F0.3 | `feature/f0-3-snowflake-raw-ci` | Minimal load into Snowflake `RAW` and GitHub Actions with pytest + dbt (DuckDB) |
 | F0.4 | `feature/f0-4-orders-json` | Orders JSON, NAV and reconciliation with `orders` (ADR-0014) |
 
-These features will be mapped into the MVP backlog (ADR-0017) when it enters `TASKS.md`.
+Mapped into the MVP backlog in T-031: F0.2a → T-032, F0.3 → T-033 (CI) and T-045 (`RAW` load); F0.2b and F0.4 come after the MVP.
 
 Coverage of the reference technical case: Task 1 → F0.2 (`org_summary`); Task 2 → F0.4; Task 3 → F0.1, F0.2 and ADR-0011; Task 4 → ADR-0010 and RB-001; Task 5 → ADR-0012.
 
