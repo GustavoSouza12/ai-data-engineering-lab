@@ -16,7 +16,7 @@ How agents build this lab under Firstmate. Decisions: [ADR-0016](decisions/ADR-0
 
 1. The first mate proposes the scope to the user.
 2. The user approves the scope.
-3. A Ship crewmate works on `feature/<id>-<topic>` from `main`, records the task in `memory/TASKS.md`, implements, runs the tests and commits.
+3. A Ship crewmate works on `feature/<id>-<topic>` from `main` by default. When the user orders stacked PRs (as for the MVP, 2026-11-21), each task branches from the previous task's branch, its PR targets that branch, and the user merges them in order. The crewmate records the task in `memory/TASKS.md`, implements, runs the tests and commits.
 4. The Ship crewmate pushes its branch and opens a ready PR.
 5. An architecture Scout and a governance Scout review the PR, in parallel.
 6. Serious findings go back to a Ship crewmate on the same branch; the Scouts recheck.
