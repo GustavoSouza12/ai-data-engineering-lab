@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
@@ -84,9 +85,48 @@ def test_check_batch_rejects_invalid_counts(counts):
         bg.check_batch(*counts)
 
 
+def test_limit_boundary_is_exact():
+    """S1: 0.1 means exactly 1/10, not the nearest binary float."""
+    n = 10**17
+    # Exactly at the limit passes.
+    assert bg.check_batch(n, n // 10).passed
+    assert bg.check_batch(30, 3, max_ratio=0.1).passed
+    assert bg.check_batch(10, 7, max_ratio=0.7).passed
+    # One row above the limit fails, although (n // 10 + 1) / n rounds to the float 0.1.
+    assert (n // 10 + 1) / n == 0.1
+    assert not bg.check_batch(n, n // 10 + 1).passed
+
+
+def test_parse_max_ratio_is_exact():
+    assert bg.parse_max_ratio("0.1") == Fraction(1, 10)
+    assert bg.parse_max_ratio(" 0.30 ") == Fraction(3, 10)
+    assert bg.validate_max_ratio(0.1) == Fraction(1, 10)
+
+
+@pytest.mark.parametrize("text", ["", "abc", "1/0", "nan", "inf", "-0.1", "1.5"])
+def test_parse_max_ratio_rejects_invalid_text(text):
+    with pytest.raises(bg.InvalidInputError):
+        bg.parse_max_ratio(text)
+
+
+def test_cli_limit_boundary_is_exact(tmp_path):
+    n = 10**17
+    at_limit = write_summary(
+        tmp_path / "a.json", input_rows=n, staging_rows=n - n // 10, quarantine_rows=n // 10
+    )
+    above = write_summary(
+        tmp_path / "b.json",
+        input_rows=n,
+        staging_rows=n - n // 10 - 1,
+        quarantine_rows=n // 10 + 1,
+    )
+    assert bg.main(["--summary-json", str(at_limit), "--max-quarantine-ratio", "0.1"]) == 0
+    assert bg.main(["--summary-json", str(above), "--max-quarantine-ratio", "0.1"]) == 1
+
+
 def test_ratio_and_render():
     result = bg.check_batch(284, 12)
-    assert result.ratio == pytest.approx(12 / 284)
+    assert result.ratio == Fraction(12, 284)
     assert result.render() == "quarantine ratio: 12/284 = 4.2% (limit 10.0%): OK"
 
 

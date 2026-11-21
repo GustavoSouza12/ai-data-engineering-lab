@@ -5,7 +5,9 @@ to quarantine and the run succeeds. This guard is the separate "quarantine above
 limit -> stop" step of the DAG. It reads the summary written by
 ``validate_orders --summary-json`` and fails when
 ``quarantine_rows / input_rows`` is above the limit (default 10%).
-A file with zero input rows passes.
+A file with zero input rows passes. The comparison is exact (``fractions.Fraction``):
+a limit of ``0.1`` means exactly 1/10, so a batch at the limit never fails on a binary
+rounding error and one just above it never passes on one.
 
 Usage:
     uv run python -m ingestion.batch_guard --summary-json <path> [--max-quarantine-ratio 0.10]
@@ -21,8 +23,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 
 DEFAULT_MAX_QUARANTINE_RATIO = 0.10
@@ -43,25 +47,25 @@ class InvalidInputError(Exception):
 class GuardResult:
     input_rows: int
     quarantine_rows: int
-    max_ratio: float
+    max_ratio: Fraction
 
     @property
-    def ratio(self) -> float:
-        """Share of input rows in quarantine; 0.0 for an empty file."""
+    def ratio(self) -> Fraction:
+        """Exact share of input rows in quarantine; 0 for an empty file."""
         if self.input_rows == 0:
-            return 0.0
-        return self.quarantine_rows / self.input_rows
+            return Fraction(0)
+        return Fraction(self.quarantine_rows, self.input_rows)
 
     @property
     def passed(self) -> bool:
-        """Fails only when the ratio is strictly above the limit."""
+        """Fails only when the ratio is strictly above the limit (exact comparison)."""
         return self.ratio <= self.max_ratio
 
     def render(self) -> str:
         status = "OK" if self.passed else "FAILED"
         return (
-            f"quarantine ratio: {self.quarantine_rows}/{self.input_rows} = {self.ratio:.1%} "
-            f"(limit {self.max_ratio:.1%}): {status}"
+            f"quarantine ratio: {self.quarantine_rows}/{self.input_rows} "
+            f"= {float(self.ratio):.1%} (limit {float(self.max_ratio):.1%}): {status}"
         )
 
 
@@ -70,18 +74,37 @@ class GuardResult:
 # ---------------------------------------------------------------------------
 
 
-def validate_max_ratio(max_ratio: float) -> float:
-    if isinstance(max_ratio, bool) or not isinstance(max_ratio, (int, float)):
+def validate_max_ratio(max_ratio: float | Fraction) -> Fraction:
+    """The limit as an exact fraction between 0 and 1.
+
+    A float is read through its shortest decimal form (``repr``), so ``0.1`` becomes
+    exactly 1/10 and not the nearest binary value.
+    """
+    if isinstance(max_ratio, bool) or not isinstance(max_ratio, (int, float, Fraction)):
         raise InvalidInputError("the quarantine limit must be a number")
-    if not 0.0 <= max_ratio <= 1.0:
+    if isinstance(max_ratio, float):
+        if not math.isfinite(max_ratio):
+            raise InvalidInputError("the quarantine limit must be between 0 and 1")
+        max_ratio = Fraction(repr(max_ratio))
+    limit = Fraction(max_ratio)
+    if not 0 <= limit <= 1:
         raise InvalidInputError("the quarantine limit must be between 0 and 1")
-    return float(max_ratio)
+    return limit
+
+
+def parse_max_ratio(text: str) -> Fraction:
+    """Parse the CLI limit exactly (``"0.1"`` -> 1/10)."""
+    try:
+        limit = Fraction(text.strip())
+    except (ValueError, ZeroDivisionError):
+        raise InvalidInputError("the quarantine limit must be a number") from None
+    return validate_max_ratio(limit)
 
 
 def check_batch(
     input_rows: int,
     quarantine_rows: int,
-    max_ratio: float = DEFAULT_MAX_QUARANTINE_RATIO,
+    max_ratio: float | Fraction = DEFAULT_MAX_QUARANTINE_RATIO,
 ) -> GuardResult:
     """Compare the quarantine share of a batch with the limit."""
     max_ratio = validate_max_ratio(max_ratio)
@@ -93,7 +116,9 @@ def check_batch(
     return GuardResult(input_rows, quarantine_rows, max_ratio)
 
 
-def check_summary(summary: object, max_ratio: float = DEFAULT_MAX_QUARANTINE_RATIO) -> GuardResult:
+def check_summary(
+    summary: object, max_ratio: float | Fraction = DEFAULT_MAX_QUARANTINE_RATIO
+) -> GuardResult:
     """Check a summary produced by ``validate_orders --summary-json``."""
     if not isinstance(summary, dict):
         raise InvalidInputError("the summary is not a JSON object")
@@ -124,8 +149,13 @@ def load_summary(path: Path) -> object:
         raise InvalidInputError(f"{path.name} is not valid JSON") from None
 
 
-def run(summary_json: Path, max_ratio: float = DEFAULT_MAX_QUARANTINE_RATIO) -> int:
+def run(
+    summary_json: Path, max_ratio: float | Fraction | str = DEFAULT_MAX_QUARANTINE_RATIO
+) -> int:
+    """Return the exit code; a ``str`` limit (from the CLI) is parsed exactly."""
     try:
+        if isinstance(max_ratio, str):
+            max_ratio = parse_max_ratio(max_ratio)
         result = check_summary(load_summary(summary_json), max_ratio)
     except InvalidInputError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -147,8 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--max-quarantine-ratio",
-        type=float,
-        default=DEFAULT_MAX_QUARANTINE_RATIO,
+        default=str(DEFAULT_MAX_QUARANTINE_RATIO),
         help=(
             "Highest accepted quarantine_rows / input_rows, between 0 and 1 "
             f"(default {DEFAULT_MAX_QUARANTINE_RATIO})."

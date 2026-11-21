@@ -155,6 +155,8 @@ not change. `ingestion/batch_guard.py` is the separate "quarantine above the lim
 step (ADR-0017, T4). It reads the summary JSON and fails when
 `quarantine_rows / input_rows` is above the limit, 10% by default (`--max-quarantine-ratio`,
 between 0 and 1). A ratio exactly at the limit passes; a header-only file (0 rows) passes.
+The comparison is exact (`fractions.Fraction`): `0.1` means exactly 1/10, so the boundary
+does not depend on binary floating-point rounding.
 
 ```
 uv run python -m ingestion.validate_orders --input data/raw/orders/orders_2026-11-19.csv \
