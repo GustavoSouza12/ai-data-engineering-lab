@@ -56,7 +56,12 @@ On the sample: 272 validated rows -> 270 in `stg_orders` -> 190 in `int_orders__
 | TS-019 | `int_orders__latest.order_id` unique and not null; `assert_int_orders__latest_is_latest_version` | error |
 | TS-020 | `fct_orders.organization_id` -> `organizations`; `assert_every_order_has_fx_rate` | error |
 | TS-021 | `org_summary.organization_id` unique and not null; `assert_org_summary_reconciles_with_gold` (20 organizations, totals = gold) | error |
-| TS-026 | `assert_no_cross_file_conflicting_versions` (ADR-0009): same (`order_id`, `updated_at`), different content, across daily files | error |
+| TS-026 | `assert_no_cross_file_conflicting_versions` (ADR-0009): same (`order_id`, `updated_at`), different content, across daily files | error (var `cross_file_conflict_severity`) |
+
+The cross-file conflict test errors by default (ADR-0009: no silent resolution). How gold
+should treat such a conflict is pending the owner's decision; until then the severity lives
+only in the `cross_file_conflict_severity` var of `dbt_project.yml`, and there is no
+exclusion or quarantine logic for it.
 
 Seeds are tested too (keys, accepted values, `rate_to_usd > 0`).
 
