@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: org_summary
+    description: >
+      Internal mart (ADR-0017 T9): one row per organization, including organizations
+      without orders, with order counts and USD amounts from fct_orders (case Task 1,
+      without completion dates, which arrive with order_events in F0.2b).
+    config:
+      meta:
+        owner: data-engineering
+    columns:
+      - name: organization_id
+        description: Organization key; one row per organization in the seed (TS-021).
+        meta: {pii_level: internal}
+        data_tests:
+          - unique:
+              name: ts021_org_summary_organization_id_unique
+          - not_null:
+              name: ts021_org_summary_organization_id_not_null
+      - name: organization_name
+        description: Synthetic organization name.
+        meta: {pii_level: internal}
+      - name: organization_type
+        description: sponsor or advisor_firm.
+        meta: {pii_level: internal}
+      - name: order_count
+        description: Orders (current version) of the organization; 0 without orders.
+        meta: {pii_level: internal}
+      - name: completed_order_count
+        description: Orders whose current status is completed.
+        meta: {pii_level: internal}
+      - name: cancelled_order_count
+        description: Orders whose current status is cancelled.
+        meta: {pii_level: internal}
+      - name: total_amount_usd
+        description: Sum of amount_usd over the organization's orders; 0 without orders.
+        meta: {pii_level: confidential}
+      - name: completed_order_amount_usd
+        description: Sum of amount_usd over completed orders.
+        meta: {pii_level: confidential}

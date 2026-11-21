@@ -1,0 +1,13 @@
+version: 2
+
+data_tests:
+  - name: assert_no_cross_file_conflicting_versions
+    description: Same (order_id, updated_at) with different content in different daily files (ADR-0009).
+  - name: assert_int_orders__latest_is_latest_version
+    description: TS-019, int_orders__latest keeps the latest updated_at of each order.
+  - name: assert_orders_reconcile_latest_to_gold
+    description: TS-011, count and amount sum per currency match between int_orders__latest and fct_orders.
+  - name: assert_every_order_has_fx_rate
+    description: TS-020, every order has a rate for its submitted_at date and currency (ADR-0013).
+  - name: assert_org_summary_reconciles_with_gold
+    description: TS-021, org_summary has every organization and its totals equal the gold totals.

@@ -1,0 +1,55 @@
+version: 2
+
+models:
+  - name: int_orders__latest
+    description: >
+      Current version of each order: the row with the latest updated_at (ADR-0009).
+      Every order metric starts here, never from staging directly.
+    config:
+      meta:
+        owner: data-engineering
+    columns:
+      - name: order_id
+        description: Order key; one row per order (TS-019).
+        meta: {pii_level: internal}
+        data_tests:
+          - unique:
+              name: ts019_int_orders__latest_order_id_unique
+          - not_null:
+              name: ts019_int_orders__latest_order_id_not_null
+      - name: organization_id
+        description: Organization that owns the order.
+        meta: {pii_level: internal}
+      - name: investor_id
+        description: Synthetic investor key.
+        meta: {pii_level: internal}
+      - name: fund_id
+        description: Synthetic fund key.
+        meta: {pii_level: internal}
+      - name: amount
+        description: Order amount in its original currency.
+        meta: {pii_level: confidential}
+      - name: currency
+        description: Currency of amount.
+        meta: {pii_level: internal}
+      - name: channel
+        description: Channel the order came through.
+        meta: {pii_level: internal}
+      - name: status
+        description: Current order status.
+        meta: {pii_level: internal}
+      - name: submitted_at
+        description: When the order was submitted (UTC).
+        meta: {pii_level: internal}
+      - name: updated_at
+        description: When the current version was produced (UTC).
+        meta: {pii_level: internal}
+      - name: _source_file
+        description: Daily file the current version came from.
+        meta: {pii_level: internal}
+      - name: _source_file_date
+        description: Date in the daily file name.
+        meta: {pii_level: internal}
+      - name: _loaded_at
+        description: When ingestion loaded the file (UTC).
+        meta: {pii_level: internal}
