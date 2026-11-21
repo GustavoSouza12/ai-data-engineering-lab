@@ -1,7 +1,10 @@
 """Structural validation of ``orders`` (phase 0, ADR-0002 and ADR-0009).
 
 Structural rules only:
-- the header must contain every contract column (otherwise exit code 2, nothing written);
+- the header must contain every contract column, exactly once, and nothing else: a
+  missing, duplicated, reserved (``_source_file``, ``_loaded_at``, ``reject_reason``) or
+  off-contract column means exit code 2 and nothing written (ADR-0017, C5: a column
+  without a ``pii_level`` never enters staging);
 - required field empty or whitespace only -> quarantine with ``missing_<column>``;
 - same (``order_id``, ``updated_at``) with different content -> every
   occurrence goes to quarantine with ``conflicting_version``;
@@ -13,13 +16,15 @@ go to staging: deduplicating and picking the latest version is the job of dbt
 (F0.2). Types, accepted values and ``amount > 0`` are also left to dbt.
 
 Usage:
-    uv run python -m ingestion.validate_orders --input <raw.csv> --run-ts <ISO 8601 with timezone>
+    uv run python -m ingestion.validate_orders --input <raw.csv> --run-ts <ISO 8601 with timezone> \
+        [--summary-json <path>]
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import sys
 import tempfile
@@ -46,6 +51,8 @@ REQUIRED_COLUMNS: tuple[str, ...] = (
 VERSION_KEY: tuple[str, str] = ("order_id", "updated_at")
 METADATA_COLUMNS: tuple[str, ...] = ("_source_file", "_loaded_at")
 REJECT_REASON_COLUMN = "reject_reason"
+# Names the validator adds to the outputs: an input column with one of them is rejected.
+RESERVED_COLUMNS: tuple[str, ...] = METADATA_COLUMNS + (REJECT_REASON_COLUMN,)
 REASON_SEPARATOR = ";"
 CONFLICT_REASON = "conflicting_version"
 EXTRA_FIELDS_REASON = "extra_fields"
@@ -80,6 +87,34 @@ def missing_header_columns(fieldnames: Iterable[str] | None) -> list[str]:
     return [col for col in REQUIRED_COLUMNS if col not in present]
 
 
+def header_error(fieldnames: Iterable[str] | None) -> str | None:
+    """Why the header is rejected (exit code 2), or None if it is valid.
+
+    Checked in this order: missing contract columns, reserved names, off-contract
+    columns, duplicated columns. The message names only contract or reserved
+    columns; off-contract columns are reported by 1-based position, because their
+    names come from the file and are not under the contract.
+    """
+    names = list(fieldnames or [])
+    missing = missing_header_columns(names)
+    if missing:
+        return "header is missing required column(s): " + ", ".join(missing)
+    reserved = sorted({n for n in names if n in RESERVED_COLUMNS}, key=RESERVED_COLUMNS.index)
+    if reserved:
+        return "header uses reserved column name(s): " + ", ".join(reserved)
+    off_contract = [str(i) for i, n in enumerate(names, start=1) if n not in REQUIRED_COLUMNS]
+    if off_contract:
+        return (
+            "header has column(s) outside the contract at position(s): "
+            + ", ".join(off_contract)
+        )
+    counts = Counter(names)
+    duplicated = [col for col in REQUIRED_COLUMNS if counts[col] > 1]
+    if duplicated:
+        return "header has duplicated column(s): " + ", ".join(duplicated)
+    return None
+
+
 def normalize_run_ts(run_ts: str) -> str:
     """Convert ``--run-ts`` to UTC in the ``YYYY-MM-DDTHH:MM:SSZ`` format.
 
@@ -104,7 +139,12 @@ def _same_dir(a: Path, b: Path) -> bool:
     return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
 
 
-def check_output_dirs(input_path: Path, staging_dir: Path, quarantine_dir: Path) -> None:
+def check_output_dirs(
+    input_path: Path,
+    staging_dir: Path,
+    quarantine_dir: Path,
+    summary_json: Path | None = None,
+) -> None:
     """Reject output directories that collide with each other or with the raw directory.
 
     Staging and quarantine reuse the input file name: in the same directory
@@ -118,6 +158,14 @@ def check_output_dirs(input_path: Path, staging_dir: Path, quarantine_dir: Path)
         raise InvalidInputError("--staging-dir cannot be the directory of the input file")
     if _same_dir(quarantine_dir, input_dir):
         raise InvalidInputError("--quarantine-dir cannot be the directory of the input file")
+    if summary_json is not None:
+        for taken in (input_path, staging_dir / input_path.name, quarantine_dir / input_path.name):
+            if _same_dir(summary_json, taken):
+                raise InvalidInputError(
+                    "--summary-json cannot be the input file nor one of the CSV outputs"
+                )
+        if summary_json.is_dir():
+            raise InvalidInputError("--summary-json is a directory")
 
 
 def _is_blank(value: object) -> bool:
@@ -257,6 +305,22 @@ class Summary:
         )
         return "\n".join(lines)
 
+    def to_json_dict(self, source_file: str) -> dict:
+        """Counts and reason codes only: never row content (G-1/G-2).
+
+        ``source_file`` is the input file name (never a path).
+        """
+        return {
+            "source_file": source_file,
+            "input_rows": self.input_rows,
+            "staging_rows": self.staging_rows,
+            "quarantine_rows": self.quarantine_rows,
+            "reasons": dict(self.reasons),
+            "exact_duplicates": self.exact_duplicates,
+            "versioned_orders": self.versioned_orders,
+            "reconciled": self.reconciled,
+        }
+
 
 # ---------------------------------------------------------------------------
 # I/O
@@ -304,6 +368,12 @@ def _write_csv(path: Path, fieldnames: list[str], rows: list[Row]) -> None:
         writer.writerows(rows)
 
 
+def _write_json(path: Path, payload: dict) -> None:
+    with path.open("w", encoding="utf-8", newline="") as fh:
+        json.dump(payload, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+
+
 def count_data_rows(path: Path) -> int:
     with path.open("r", encoding="utf-8", newline="") as fh:
         return sum(1 for _ in csv.DictReader(fh))
@@ -314,8 +384,12 @@ def run(
     run_ts: str,
     staging_dir: Path = DEFAULT_STAGING_DIR,
     quarantine_dir: Path = DEFAULT_QUARANTINE_DIR,
+    summary_json: Path | None = None,
 ) -> int:
     """Run the validation and return the exit code (0, 1 or 2).
+
+    With ``summary_json``, the summary is also written there as JSON, only when the
+    run succeeds (exit code 0) and after the CSV outputs are published.
 
     Unexpected exceptions propagate; ``main`` turns them into exit code 3.
     """
@@ -323,13 +397,11 @@ def run(
         loaded_at = normalize_run_ts(run_ts)
         if not input_path.is_file():
             raise InvalidInputError(f"input file not found: {input_path.name}")
-        check_output_dirs(input_path, staging_dir, quarantine_dir)
+        check_output_dirs(input_path, staging_dir, quarantine_dir, summary_json)
         fieldnames, rows = read_csv(input_path)
-        missing = missing_header_columns(fieldnames)
-        if missing:
-            raise InvalidInputError(
-                "header is missing required column(s): " + ", ".join(missing)
-            )
+        problem = header_error(fieldnames)
+        if problem:
+            raise InvalidInputError(problem)
     except InvalidInputError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_INVALID_INPUT
@@ -361,8 +433,15 @@ def run(
             print("error: reconciliation failed; nothing published", file=sys.stderr)
             return EXIT_RECONCILIATION_FAILED
 
+        tmp_summary = None
+        if summary_json is not None:
+            tmp_summary = _new_temp(summary_json.parent, summary_json.name, temps)
+            _write_json(tmp_summary, summary.to_json_dict(source_file))
+
         os.replace(tmp_staging, staging_dir / source_file)
         os.replace(tmp_quarantine, quarantine_dir / source_file)
+        if tmp_summary is not None:
+            os.replace(tmp_summary, summary_json)
         temps.clear()
         return EXIT_OK
     finally:
@@ -381,6 +460,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--staging-dir", type=Path, default=DEFAULT_STAGING_DIR)
     parser.add_argument("--quarantine-dir", type=Path, default=DEFAULT_QUARANTINE_DIR)
     parser.add_argument(
+        "--summary-json",
+        type=Path,
+        default=None,
+        help=(
+            "Also write the summary (counts and reason codes, no row content) as JSON to this "
+            "path; written only on exit code 0. Input of ingestion.batch_guard."
+        ),
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help=(
@@ -390,7 +478,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        return run(args.input, args.run_ts, args.staging_dir, args.quarantine_dir)
+        return run(
+            args.input, args.run_ts, args.staging_dir, args.quarantine_dir, args.summary_json
+        )
     except Exception as exc:  # noqa: BLE001 - entry point: becomes exit code 3
         # The exception text may contain data values or absolute paths:
         # outside --debug, print only the type.

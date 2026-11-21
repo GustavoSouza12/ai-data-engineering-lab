@@ -15,6 +15,7 @@ __pycache__/
 # Pipeline outputs (ADR-0005): only data/raw/ is versioned
 data/staging/
 data/quarantine/
+data/reports/
 
 # dbt and DuckDB
 transform/target/
