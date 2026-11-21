@@ -1,0 +1,55 @@
+version: 2
+
+models:
+  - name: stg_orders
+    description: >
+      Validated order versions from every daily file, trimmed like the validator
+      (ADR-0009, F3), with exact duplicates removed and values cast. Versions of
+      the same order are all kept; int_orders__latest picks the current one.
+    config:
+      meta:
+        owner: data-engineering
+    columns:
+      - name: order_id
+        description: Order key. With updated_at, it forms the version key (ADR-0009).
+        meta: {pii_level: internal}
+        data_tests:
+          - not_null
+      - name: organization_id
+        description: Organization that owns the order.
+        meta: {pii_level: internal}
+      - name: investor_id
+        description: Synthetic investor key.
+        meta: {pii_level: internal}
+      - name: fund_id
+        description: Synthetic fund key.
+        meta: {pii_level: internal}
+      - name: amount
+        description: Order amount in its original currency; null when it does not cast.
+        meta: {pii_level: confidential}
+      - name: currency
+        description: Currency of amount.
+        meta: {pii_level: internal}
+      - name: channel
+        description: Channel the order came through.
+        meta: {pii_level: internal}
+      - name: status
+        description: Order status in this version.
+        meta: {pii_level: internal}
+      - name: submitted_at
+        description: When the order was submitted (UTC, ADR-0017 T12).
+        meta: {pii_level: internal}
+      - name: updated_at
+        description: When this version was produced (UTC).
+        meta: {pii_level: internal}
+        data_tests:
+          - not_null
+      - name: _source_file
+        description: Name of the daily file the row came from.
+        meta: {pii_level: internal}
+      - name: _source_file_date
+        description: Date in the daily file name (orders_YYYY-MM-DD.csv).
+        meta: {pii_level: internal}
+      - name: _loaded_at
+        description: When ingestion loaded the file (UTC).
+        meta: {pii_level: internal}

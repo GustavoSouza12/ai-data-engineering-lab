@@ -3,7 +3,10 @@ name = "ai-data-engineering-lab"
 version = "0.1.0"
 description = "AI Data Engineering lab with synthetic data (phase 0: orders ingestion)."
 requires-python = ">=3.11,<3.12"
-dependencies = []
+dependencies = [
+    "dbt-core>=1.12,<1.13",
+    "dbt-duckdb>=1.11.1,<1.12",
+]
 
 [dependency-groups]
 dev = [
@@ -14,5 +17,5 @@ dev = [
 package = false
 
 [tool.pytest.ini_options]
-testpaths = ["ingestion/tests"]
+testpaths = ["ingestion/tests", "transform/integration_tests"]
 pythonpath = ["."]

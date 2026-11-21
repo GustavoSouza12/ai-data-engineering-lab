@@ -20,5 +20,6 @@ data/quarantine/
 transform/target/
 transform/logs/
 transform/dbt_packages/
+transform/.user.yml
 *.duckdb
 *.duckdb.wal

@@ -1,0 +1,111 @@
+version: 2
+
+# Semantic tests (TS-009, TS-010, TS-012) follow ADR-0017 T3: the planted
+# errors stay in gold, each test warns from the first failing row, errors only
+# above var('semantic_error_threshold') failing rows, and stores its failures.
+
+models:
+  - name: fct_orders
+    description: >
+      Gold orders: one row per order (current version) with the original amount and
+      currency plus amount_usd at the rate of the submitted_at date (ADR-0013).
+      Never sum amount across currencies; use amount_usd or group by currency.
+    config:
+      meta:
+        owner: data-engineering
+    data_tests:
+      - expression_is_true:
+          name: ts010_fct_orders_amount_castable_and_positive
+          arguments:
+            expression: "amount > 0"
+          config:
+            warn_if: ">0"
+            error_if: ">{{ var('semantic_error_threshold') }}"
+      - expression_is_true:
+          name: ts012_fct_orders_timestamps_within_file_date
+          arguments:
+            expression: "submitted_at <= updated_at and cast(updated_at as date) <= _source_file_date"
+          config:
+            warn_if: ">0"
+            error_if: ">{{ var('semantic_error_threshold') }}"
+    columns:
+      - name: order_id
+        description: Order key; one row per order (TS-008).
+        meta: {pii_level: internal}
+        data_tests:
+          - unique:
+              name: ts008_fct_orders_order_id_unique
+          - not_null:
+              name: ts008_fct_orders_order_id_not_null
+      - name: organization_id
+        description: Organization that owns the order.
+        meta: {pii_level: internal}
+        data_tests:
+          - relationships:
+              name: ts020_fct_orders_organization_exists
+              arguments:
+                to: ref('organizations')
+                field: organization_id
+      - name: investor_id
+        description: Synthetic investor key.
+        meta: {pii_level: internal}
+      - name: fund_id
+        description: Synthetic fund key.
+        meta: {pii_level: internal}
+      - name: amount
+        description: Order amount in its original currency. Never sum it across currencies.
+        meta: {pii_level: confidential}
+      - name: currency
+        description: Currency of amount (USD, EUR, BRL).
+        meta: {pii_level: internal}
+        data_tests:
+          - accepted_values_by_row:
+              name: ts009_fct_orders_currency_accepted
+              arguments:
+                values: ["USD", "EUR", "BRL"]
+              config:
+                warn_if: ">0"
+                error_if: ">{{ var('semantic_error_threshold') }}"
+      - name: rate_to_usd
+        description: Rate from fx_rates for (submitted_at date, currency).
+        meta: {pii_level: internal}
+      - name: amount_usd
+        description: amount x rate_to_usd, rounded to cents (ADR-0013).
+        meta: {pii_level: confidential}
+      - name: channel
+        description: Channel the order came through (advisor, direct, platform).
+        meta: {pii_level: internal}
+        data_tests:
+          - accepted_values_by_row:
+              name: ts009_fct_orders_channel_accepted
+              arguments:
+                values: ["advisor", "direct", "platform"]
+              config:
+                warn_if: ">0"
+                error_if: ">{{ var('semantic_error_threshold') }}"
+      - name: status
+        description: Current order status.
+        meta: {pii_level: internal}
+        data_tests:
+          - accepted_values_by_row:
+              name: ts009_fct_orders_status_accepted
+              arguments:
+                values: ["submitted", "sponsor_review", "nigo", "approved", "signed", "completed", "cancelled"]
+              config:
+                warn_if: ">0"
+                error_if: ">{{ var('semantic_error_threshold') }}"
+      - name: submitted_at
+        description: When the order was submitted (UTC).
+        meta: {pii_level: internal}
+      - name: updated_at
+        description: When the current version was produced (UTC).
+        meta: {pii_level: internal}
+      - name: _source_file
+        description: Daily file the current version came from.
+        meta: {pii_level: internal}
+      - name: _source_file_date
+        description: Date in the daily file name; upper bound for updated_at (TS-012).
+        meta: {pii_level: internal}
+      - name: _loaded_at
+        description: When ingestion loaded the file (UTC).
+        meta: {pii_level: internal}

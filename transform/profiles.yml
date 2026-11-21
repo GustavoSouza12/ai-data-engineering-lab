@@ -1,0 +1,10 @@
+# Local DuckDB profile. No secrets: DuckDB is a local file (ADR-0004).
+# Only the `dev` target exists; the Snowflake target arrives in a later MVP item.
+lab_transform:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      # Relative paths resolve against the directory dbt runs from (transform/).
+      path: "{{ env_var('LAB_DUCKDB_PATH', 'lab_dev.duckdb') }}"
+      threads: 4

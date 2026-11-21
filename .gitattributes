@@ -1,2 +1,5 @@
 # A5: the raw sample is versioned byte for byte (no line-ending or whitespace conversion).
 data/raw/** -text
+
+# dbt integration test fixtures: keep bytes (trailing spaces, line endings) as written
+transform/integration_tests/fixtures/** -text
