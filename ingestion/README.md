@@ -21,13 +21,24 @@ keep the column order of the input file.
 The key of a version is (`order_id`, `updated_at`). Ingestion adds `_source_file`
 (file name) and `_loaded_at` (UTC, `YYYY-MM-DDTHH:MM:SSZ`).
 
-## Generate the synthetic raw file
+## Generate the synthetic raw files
 
-Deterministic (`random.Random(42)`, standard library only): the same run produces the same file.
+Standard library only, deterministic by logical date: the file of a date uses seed
+`42 + days since 2026-11-19`, so the same date always produces the same bytes. The first
+date, and the default, is `2026-11-19`: it reproduces the versioned sample byte for byte.
 
 ```
+uv run python -m ingestion.generate_orders                                 # the sample
+uv run python -m ingestion.generate_orders --date 2026-11-20 --days 3      # 3 daily files
 uv run python -m ingestion.generate_orders --output data/raw/orders/orders_2026-11-19.csv
 ```
+
+Files are written as `orders_<date>.csv` under `--output-dir` (default `data/raw/orders`);
+`--output` sets the exact path and works only with `--days 1`. A date before `2026-11-19`,
+a malformed date or `--days` below 1 exits with code 2 and writes nothing. Each later file
+is built on the days before it, so generating a date replays the chain from the sample.
+
+### The sample (`2026-11-19`): a full extract
 
 There are 200 distinct orders from `ORG-001` to `ORG-015` (`ORG-016` to `ORG-020` have no
 orders, for the `LEFT JOIN` in F0.2). 40 orders have 2 versions and 20 have 3: `status`
@@ -47,6 +58,21 @@ single-version orders:
 | `updated_at` after the file date | 1 | staging (semantic, dbt in F0.2) |
 
 Total: 284 rows -> 272 in staging + 12 in quarantine.
+
+### Daily files (from `2026-11-20`): incremental extracts
+
+Every file of date D after the sample has exactly 27 rows (constants `N_DAILY_*`), all
+structurally valid, so ingestion sends 27 to staging and 0 to quarantine:
+
+| Rows | Count | Content |
+|---|---|---|
+| New versions | 10 | open orders whose latest version is in the file of D-1; `updated_at` on day D, after the previous version; `status` advances (`NEXT_STATUSES`), `amount` may change |
+| New orders | 15 | `ORD-<200 + 15 * (k - 1) + 1>` onwards, for the k-th day after the sample; one version, `submitted`, `submitted_at = updated_at` on day D |
+| Late version | 1 | new version of an older open order with `updated_at` on day D-2: more than 1 day old, inside the 3-day lookback (ADR-0010) |
+| Cross-file conflict | 1 | same (`order_id`, `updated_at`) as a row of the file of D-1, different `amount`; the validator works per file and does not see it, the cross-file dbt test (MVP-02) does |
+
+Daily files add no semantic errors (the 3 of the sample stay the only ones) and never touch
+an order with a planted error or one already used for a cross-file conflict.
 
 `.gitattributes` marks `data/raw/**` as `-text` so git does not touch line endings or
 trailing whitespace in the sample.
