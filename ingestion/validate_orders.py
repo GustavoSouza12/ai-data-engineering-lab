@@ -159,11 +159,12 @@ def check_output_dirs(
     if _same_dir(quarantine_dir, input_dir):
         raise InvalidInputError("--quarantine-dir cannot be the directory of the input file")
     if summary_json is not None:
-        for taken in (input_path, staging_dir / input_path.name, quarantine_dir / input_path.name):
+        # The raw directory is versioned (ADR-0005): no report is written into it.
+        if _same_dir(summary_json.parent, input_dir):
+            raise InvalidInputError("--summary-json cannot be in the directory of the input file")
+        for taken in (staging_dir / input_path.name, quarantine_dir / input_path.name):
             if _same_dir(summary_json, taken):
-                raise InvalidInputError(
-                    "--summary-json cannot be the input file nor one of the CSV outputs"
-                )
+                raise InvalidInputError("--summary-json cannot be one of the CSV outputs")
         if summary_json.is_dir():
             raise InvalidInputError("--summary-json is a directory")
 

@@ -64,7 +64,9 @@ uv run python -m ingestion.validate_orders --input data/raw/orders/orders_2026-1
   the same directory nor the directory of the input file.
 - `--summary-json <path>` (optional) also writes the summary as JSON, the input of the
   [batch guard](#batch-guard). It is written only on exit code 0, after the CSV outputs are
-  published, and it cannot be the input file nor one of the CSV outputs.
+  published. It cannot be in the directory of the input file (the raw directory is
+versioned, ADR-0005) nor be one of the CSV outputs; its parent directory is created if
+needed.
 - `--debug` prints the traceback of unexpected errors. Unsafe: may expose paths and values;
   never enable in a DAG/production.
 

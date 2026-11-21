@@ -77,7 +77,7 @@ def test_ts024_duplicated_column_exits_2_without_outputs(tmp_path, dirs, capsys)
 
 def test_ts024_off_contract_column_exits_2_without_outputs(tmp_path, dirs, capsys):
     """C5: a column without a pii_level never enters staging; the whole file is rejected."""
-    row = list(make_row("ORD-00001").values()) + ["Jane Placeholder"]
+    row = list(make_row("ORD-00001").values()) + ["NAME-0001"]
     src = write_raw(tmp_path / "orders_off.csv", HEADER + ["investor_name"], [row])
 
     assert run_validator(src, dirs) == 2
@@ -87,7 +87,7 @@ def test_ts024_off_contract_column_exits_2_without_outputs(tmp_path, dirs, capsy
     assert f"position(s): {len(HEADER) + 1}" in err
     # The off-contract name comes from the file: it is reported by position only.
     assert "investor_name" not in err
-    assert "Jane Placeholder" not in err
+    assert "NAME-0001" not in err
     assert not dirs["staging"].exists()
     assert not dirs["quarantine"].exists()
 
@@ -173,7 +173,7 @@ def test_summary_json_never_contains_field_values(tmp_path, dirs):
     conflict_a = {**sentinel, "updated_at": "SENTINEL-T3"}
     conflict_b = {**sentinel, "updated_at": "SENTINEL-T3", "amount": "SENTINEL-OTHER"}
     src = write_input(tmp_path / "orders_g.csv", [good, blank, conflict_a, conflict_b])
-    summary = tmp_path / "summary.json"
+    summary = tmp_path / "reports" / "summary.json"
 
     assert validate_with_summary(src, dirs, summary) == 0
 
@@ -187,7 +187,7 @@ def test_summary_json_never_contains_field_values(tmp_path, dirs):
 
 def test_summary_json_header_only_file(tmp_path, dirs):
     src = write_input(tmp_path / "orders_empty.csv", [])
-    summary = tmp_path / "summary.json"
+    summary = tmp_path / "reports" / "summary.json"
 
     assert validate_with_summary(src, dirs, summary) == 0
 
@@ -198,7 +198,7 @@ def test_summary_json_header_only_file(tmp_path, dirs):
 
 def test_summary_json_not_written_on_exit_2(tmp_path, dirs):
     src = write_input(tmp_path / "orders_bad.csv", [make_row("ORD-00001")], header=HEADER[1:])
-    summary = tmp_path / "summary.json"
+    summary = tmp_path / "reports" / "summary.json"
 
     assert validate_with_summary(src, dirs, summary) == 2
     assert not summary.exists()
@@ -206,7 +206,7 @@ def test_summary_json_not_written_on_exit_2(tmp_path, dirs):
 
 def test_summary_json_not_written_on_exit_1(tmp_path, dirs, monkeypatch):
     src = write_input(tmp_path / "orders_rec.csv", [make_row("ORD-00001")])
-    summary = tmp_path / "summary.json"
+    summary = tmp_path / "reports" / "summary.json"
     monkeypatch.setattr(vo, "count_data_rows", lambda path: 0)
 
     assert validate_with_summary(src, dirs, summary) == 1
@@ -214,11 +214,14 @@ def test_summary_json_not_written_on_exit_1(tmp_path, dirs, monkeypatch):
     assert not dirs["staging"].joinpath(src.name).exists()
 
 
-@pytest.mark.parametrize("target", ["input", "staging", "quarantine", "directory"])
+@pytest.mark.parametrize(
+    "target", ["input", "input_dir", "staging", "quarantine", "directory"]
+)
 def test_summary_json_cannot_collide_with_other_files(tmp_path, dirs, capsys, target):
     src = write_input(tmp_path / "orders_c.csv", [make_row("ORD-00001")])
     summary = {
         "input": src,
+        "input_dir": src.parent / "summary.json",
         "staging": dirs["staging"] / src.name,
         "quarantine": dirs["quarantine"] / src.name,
         "directory": tmp_path,
@@ -229,6 +232,7 @@ def test_summary_json_cannot_collide_with_other_files(tmp_path, dirs, capsys, ta
 
     assert "--summary-json" in capsys.readouterr().err
     assert src.read_bytes() == before
+    assert not (src.parent / "summary.json").exists()
     assert not dirs["staging"].exists()
 
 
@@ -236,13 +240,13 @@ def test_summary_json_is_optional_and_does_not_change_stdout(tmp_path, dirs, cap
     src = write_input(tmp_path / "orders_o.csv", [make_row("ORD-00001")])
     assert run_validator(src, dirs) == 0
     plain = capsys.readouterr().out
-    assert validate_with_summary(src, dirs, tmp_path / "summary.json") == 0
+    assert validate_with_summary(src, dirs, tmp_path / "reports" / "summary.json") == 0
     assert capsys.readouterr().out == plain
 
 
 def test_summary_json_via_cli(tmp_path, dirs):
     src = write_input(tmp_path / "orders_cli.csv", [make_row("ORD-00001")])
-    summary = tmp_path / "summary.json"
+    summary = tmp_path / "reports" / "summary.json"
     result = run_cli(
         "--input", str(src),
         "--run-ts", RUN_TS,

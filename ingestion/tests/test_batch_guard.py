@@ -22,7 +22,7 @@ RAW_FILE = REPO_ROOT / "data" / "raw" / "orders" / "orders_2026-11-19.csv"
 
 
 def validate(src: Path, out: Path) -> Path:
-    summary = out / "summary.json"
+    summary = out / "reports" / "summary.json"
     code = vo.run(src, RUN_TS, out / "staging", out / "quarantine", summary_json=summary)
     assert code == 0
     return summary
