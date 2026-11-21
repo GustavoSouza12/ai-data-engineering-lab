@@ -35,7 +35,8 @@ echo "==> batch guard"
 uv run python -m ingestion.batch_guard --summary-json "$summary_json"
 
 echo "==> load RAW (raw.orders, raw.orders_quarantine)"
-uv run python -m ingestion.load_raw --source-file "$source_file" --database "$duckdb_file"
+uv run python -m ingestion.load_raw --source-file "$source_file" --database "$duckdb_file" \
+    --summary-json "$summary_json"
 
 echo "==> dbt build (target dev, DuckDB)"
 cd transform

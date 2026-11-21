@@ -230,16 +230,19 @@ def test_every_column_has_pii_level_and_gold_has_owner(sample_build: Build):
     with duckdb.connect(str(sample_build.database), read_only=True) as con:
         for node in nodes:
             documented = node["columns"]
-            if node["resource_type"] != "source":
-                actual = {
-                    row[0]
-                    for row in con.execute(
-                        "select column_name from information_schema.columns"
-                        " where table_schema = ? and table_name = ?",
-                        [node["schema"], node["alias"]],
-                    ).fetchall()
-                }
-                assert actual == set(documented), node["name"]
+            # Sources are real RAW tables since MVP-06: their columns are checked too, so a
+            # column added to RAW without a pii_level fails here (C5).
+            table = node["identifier"] if node["resource_type"] == "source" else node["alias"]
+            actual = {
+                row[0]
+                for row in con.execute(
+                    "select column_name from information_schema.columns"
+                    " where table_schema = ? and table_name = ?",
+                    [node["schema"], table],
+                ).fetchall()
+            }
+            assert actual, node["name"]
+            assert actual == set(documented), node["name"]
             for column in documented.values():
                 assert column["meta"].get("pii_level") in PII_LEVELS, (
                     node["name"],

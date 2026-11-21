@@ -7,6 +7,7 @@ are fictitious and built inside the test itself. Every DuckDB file is temporary.
 from __future__ import annotations
 
 import csv
+import json
 import shutil
 from pathlib import Path
 
@@ -38,15 +39,18 @@ def validate(raw: Path, dirs: dict[str, Path], run_ts: str = RUN_TS) -> None:
     assert code == vo.EXIT_OK
 
 
-def load_cli(dirs: dict[str, Path], source_file: str = SAMPLE_NAME) -> int:
-    return lr.main(
-        [
-            "--source-file", source_file,
-            "--staging-dir", str(dirs["staging"]),
-            "--quarantine-dir", str(dirs["quarantine"]),
-            "--database", str(dirs["database"]),
-        ]
-    )
+def load_cli(
+    dirs: dict[str, Path], source_file: str = SAMPLE_NAME, summary: Path | None = None
+) -> int:
+    argv = [
+        "--source-file", source_file,
+        "--staging-dir", str(dirs["staging"]),
+        "--quarantine-dir", str(dirs["quarantine"]),
+        "--database", str(dirs["database"]),
+    ]
+    if summary is not None:
+        argv += ["--summary-json", str(summary)]
+    return lr.main(argv)
 
 
 def counts(database: Path) -> dict[tuple[str, str], int]:
@@ -246,11 +250,108 @@ def test_reconciliation_mismatch_rolls_back_with_exit_1(loaded, monkeypatch, cap
     assert "rolled back" in captured.err
 
 
+class _FailingCommit:
+    """A DuckDB connection whose COMMIT fails, to check the cause is not masked."""
+
+    def __init__(self, con):
+        self._con = con
+
+    def execute(self, sql, *args):
+        if sql == "COMMIT":
+            self._con.execute("ROLLBACK")  # ends the transaction, as a failed commit does
+            raise duckdb.TransactionException("simulated commit failure ORD-00001")
+        return self._con.execute(sql, *args)
+
+    def __getattr__(self, name):
+        return getattr(self._con, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self._con.close()
+
+
+def test_failed_commit_keeps_its_cause_and_raw_unchanged(loaded, monkeypatch, capsys):
+    before = counts(loaded["database"])
+    real_connect = duckdb.connect
+    monkeypatch.setattr(lr.duckdb, "connect", lambda *a, **k: _FailingCommit(real_connect(*a, **k)))
+    capsys.readouterr()
+
+    assert load_cli(loaded) == lr.EXIT_UNEXPECTED_ERROR
+
+    monkeypatch.setattr(lr.duckdb, "connect", real_connect)
+    assert counts(loaded["database"]) == before
+    err = capsys.readouterr().err
+    assert "unexpected error (TransactionException)" in err
+    assert "ORD-" not in err
+
+
 def test_load_result_reconciles_only_when_every_target_matches():
     ok = lr.TargetResult(lr.ORDERS, file_rows=3, replaced_rows=0, loaded_rows=3)
     short = lr.TargetResult(lr.QUARANTINE, file_rows=2, replaced_rows=0, loaded_rows=1)
     assert lr.LoadResult("orders_x.csv", (ok,)).reconciled
     assert not lr.LoadResult("orders_x.csv", (ok, short)).reconciled
+
+
+# --- Torn pair (validator limitation A2): exit 2, RAW untouched ------------
+
+
+def test_torn_pair_from_two_validator_runs_exits_2(loaded, tmp_path, capsys):
+    # The validator died between its two os.replace calls: staging is from a new run,
+    # quarantine is still the previous one.
+    old_quarantine = (loaded["quarantine"] / SAMPLE_NAME).read_bytes()
+    validate(SAMPLE_RAW, loaded, DAY2_RUN_TS)
+    (loaded["quarantine"] / SAMPLE_NAME).write_bytes(old_quarantine)
+    before = table_rows(loaded["database"], "orders")
+    capsys.readouterr()
+
+    assert load_cli(loaded) == lr.EXIT_INVALID_INPUT
+
+    err = capsys.readouterr().err
+    assert "are not from one validator run (2 distinct _loaded_at values)" in err
+    assert "T03:00:00Z" not in err
+    assert table_rows(loaded["database"], "orders") == before
+
+
+def test_summary_json_matching_the_files_loads(tmp_path, dirs):
+    summary = tmp_path / "reports" / "orders_2026-11-19.json"
+    code = vo.run(
+        SAMPLE_RAW, RUN_TS, staging_dir=dirs["staging"], quarantine_dir=dirs["quarantine"],
+        summary_json=summary,
+    )
+    assert code == vo.EXIT_OK
+
+    assert load_cli(dirs, summary=summary) == lr.EXIT_OK
+    assert counts(dirs["database"]) == SAMPLE_COUNTS
+
+
+@pytest.mark.parametrize(
+    ("summary_payload", "message"),
+    [
+        ({"source_file": SAMPLE_NAME, "staging_rows": 271, "quarantine_rows": 12},
+         "do not have the counts of the summary JSON"),
+        ({"source_file": SAMPLE_NAME, "staging_rows": 272, "quarantine_rows": 13},
+         "do not have the counts of the summary JSON"),
+        ({"source_file": DAY2_NAME, "staging_rows": 272, "quarantine_rows": 12},
+         f"is not the summary of {SAMPLE_NAME}"),
+        (None, "summary file not found"),
+    ],
+    ids=["staging-count", "quarantine-count", "other-file", "missing"],
+)
+def test_summary_json_that_does_not_match_exits_2(
+    loaded, tmp_path, capsys, summary_payload, message
+):
+    summary = tmp_path / "summary.json"
+    if summary_payload is not None:
+        summary.write_text(json.dumps(summary_payload), encoding="utf-8")
+    before = counts(loaded["database"])
+    capsys.readouterr()
+
+    assert load_cli(loaded, summary=summary) == lr.EXIT_INVALID_INPUT
+
+    assert message in capsys.readouterr().err
+    assert counts(loaded["database"]) == before
 
 
 # --- Invalid input: exit 2, RAW untouched ----------------------------------
@@ -311,9 +412,18 @@ def test_unexpected_staging_file_exits_2_and_keeps_raw(loaded, capsys, edit, mes
     assert counts(loaded["database"]) == before
 
 
-def test_raw_table_that_drifted_exits_2_and_keeps_raw(loaded, capsys):
+@pytest.mark.parametrize(
+    "ddl",
+    [
+        "alter table raw.orders_quarantine add column note varchar",
+        "alter table raw.orders_quarantine alter column reject_reason drop not null",
+        "alter table raw.orders_quarantine alter column amount set not null",
+    ],
+    ids=["extra-column", "lost-not-null", "added-not-null"],
+)
+def test_raw_table_that_drifted_exits_2_and_keeps_raw(loaded, capsys, ddl):
     with duckdb.connect(str(loaded["database"])) as con:
-        con.execute("alter table raw.orders_quarantine add column note varchar")
+        con.execute(ddl)
     before = counts(loaded["database"])
     capsys.readouterr()
 
@@ -327,8 +437,8 @@ def test_output_never_carries_row_values_or_paths(loaded, capsys, tmp_path):
     assert load_cli(loaded) == lr.EXIT_OK
     captured = capsys.readouterr()
     text = captured.out + captured.err
-    assert "ORD-" not in text
-    assert "ORG-" not in text
+    for prefix in ("ORD-", "ORG-", "INV-", "FND-"):
+        assert prefix not in text
     assert str(tmp_path) not in text
 
 

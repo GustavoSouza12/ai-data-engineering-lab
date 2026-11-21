@@ -44,7 +44,8 @@ sources:
         description: >
           Rows the validator quarantined, with reject_reason (ADR-0011). Same columns
           and pii_level as raw.orders. Replaced per _source_file in the same
-          transaction as raw.orders. No model reads it.
+          transaction as raw.orders. No model reads it. Locally only the pii_level
+          tags apply; the restricted access of ADR-0011 arrives with Snowflake (MVP-15a).
         columns:
           - name: order_id
             meta: {pii_level: internal}

@@ -9,20 +9,23 @@ Mirrors what ``COPY INTO`` will do in Snowflake ``RAW`` (MVP-15a), locally:
 - idempotent per ``_source_file``: both targets are replaced (``DELETE`` + ``INSERT``) in
   one transaction, so a rerun gives the same counts and other days are untouched;
 - reconciliation inside the transaction: rows in each file = rows in its target for that
-  ``_source_file``; on a mismatch everything is rolled back and the exit code is 1.
+  ``_source_file``; on a mismatch everything is rolled back and the exit code is 1;
+- a torn pair is refused (limitation A2 of the validator): both files must carry one single
+  ``_loaded_at``, and with ``--summary-json`` their row counts must match the summary.
 
 Only file names, table names and counts are printed, never row values (G-1/G-2).
 
 Usage:
     uv run python -m ingestion.load_raw --source-file orders_2026-11-19.csv \
         [--staging-dir data/staging/orders] [--quarantine-dir data/quarantine/orders] \
-        [--database transform/lab_dev.duckdb]
+        [--database transform/lab_dev.duckdb] [--summary-json data/reports/orders_2026-11-19.json]
 
 Exit codes:
     0  loaded and reconciled
     1  reconciliation failed: rolled back, RAW unchanged
     2  invalid input: bad file name, missing file, unexpected header, row shape or
-       ``_source_file``, or a RAW table whose columns differ from the contract
+       ``_source_file``, a torn pair (several ``_loaded_at`` values, or counts that differ
+       from the summary), or a RAW table whose columns differ from the contract
     3  unexpected error (only the exception type is printed); rolled back
 """
 
@@ -36,6 +39,7 @@ from pathlib import Path
 
 import duckdb
 
+from ingestion import batch_guard
 from ingestion.validate_orders import (
     DEFAULT_QUARANTINE_DIR,
     DEFAULT_STAGING_DIR,
@@ -48,6 +52,7 @@ RAW_SCHEMA = "raw"
 ORDERS_TABLE = "orders"
 QUARANTINE_TABLE = "orders_quarantine"
 SOURCE_FILE_COLUMN = "_source_file"
+LOADED_AT_COLUMN = "_loaded_at"
 ORDERS_COLUMNS: tuple[str, ...] = REQUIRED_COLUMNS + METADATA_COLUMNS
 QUARANTINE_COLUMNS: tuple[str, ...] = ORDERS_COLUMNS + (REJECT_REASON_COLUMN,)
 # The metadata columns identify the load: they can never be null.
@@ -134,6 +139,36 @@ def check_source_file(name: str) -> str:
     return name
 
 
+def check_same_run(
+    source_file: str,
+    orders_rows: list[tuple[str, ...]],
+    quarantine_rows: list[tuple[str, ...]],
+) -> None:
+    """Both files must come from one validator run: a single ``_loaded_at`` across them.
+
+    Catches a torn pair (A2: the validator died between its two ``os.replace`` calls and
+    left files of two runs). The values themselves are never printed.
+    """
+    index = ORDERS_COLUMNS.index(LOADED_AT_COLUMN)  # same position in QUARANTINE_COLUMNS
+    values = {row[index] for row in orders_rows} | {row[index] for row in quarantine_rows}
+    if len(values) > 1:
+        raise InvalidInputError(
+            f"the staging and quarantine files of {source_file} are not from one validator "
+            f"run ({len(values)} distinct {LOADED_AT_COLUMN} values)"
+        )
+
+
+def check_summary(summary: object, source_file: str, n_orders: int, n_quarantine: int) -> None:
+    """The files must have the counts of the validator summary of the same file."""
+    if not isinstance(summary, dict) or summary.get("source_file") != source_file:
+        raise InvalidInputError(f"the summary JSON is not the summary of {source_file}")
+    if summary.get("staging_rows") != n_orders or summary.get("quarantine_rows") != n_quarantine:
+        raise InvalidInputError(
+            f"the staging and quarantine files of {source_file} do not have the counts of "
+            "the summary JSON"
+        )
+
+
 def create_table_sql(target: Target) -> str:
     columns = ",\n    ".join(
         f"{col} VARCHAR{' NOT NULL' if col in NOT_NULL_COLUMNS else ''}" for col in target.columns
@@ -190,9 +225,11 @@ def read_validated_csv(path: Path, target: Target, source_file: str) -> list[tup
         raise InvalidInputError(f"{path.name} is not a readable CSV (line {line})") from None
 
 
-def _table_columns(con: duckdb.DuckDBPyConnection, target: Target) -> list[tuple[str, str]]:
+def _table_columns(
+    con: duckdb.DuckDBPyConnection, target: Target
+) -> list[tuple[str, str, str]]:
     return con.execute(
-        "select column_name, data_type from information_schema.columns"
+        "select column_name, data_type, is_nullable from information_schema.columns"
         " where table_catalog = current_database() and table_schema = ? and table_name = ?"
         " order by ordinal_position",
         [RAW_SCHEMA, target.table],
@@ -204,7 +241,9 @@ def ensure_tables(con: duckdb.DuckDBPyConnection) -> None:
     con.execute(f"CREATE SCHEMA IF NOT EXISTS {RAW_SCHEMA}")
     for target in (ORDERS, QUARANTINE):
         con.execute(create_table_sql(target))
-        expected = [(col, "VARCHAR") for col in target.columns]
+        expected = [
+            (col, "VARCHAR", "NO" if col in NOT_NULL_COLUMNS else "YES") for col in target.columns
+        ]
         if _table_columns(con, target) != expected:
             raise InvalidInputError(f"{target.qualified} has columns that differ from the contract")
 
@@ -251,7 +290,10 @@ def load(
         con.execute("COMMIT" if result.reconciled else "ROLLBACK")
         return result
     except BaseException:
-        con.execute("ROLLBACK")
+        try:
+            con.execute("ROLLBACK")
+        except duckdb.Error:
+            pass  # no transaction left to roll back (e.g. COMMIT itself failed): keep the cause
         raise
 
 
@@ -260,11 +302,12 @@ def run(
     staging_dir: Path = DEFAULT_STAGING_DIR,
     quarantine_dir: Path = DEFAULT_QUARANTINE_DIR,
     database: Path = DEFAULT_DATABASE,
+    summary_json: Path | None = None,
 ) -> int:
     """Run the load and return the exit code (0, 1 or 2).
 
-    Both files are read and checked before the database is opened. Unexpected
-    exceptions propagate; ``main`` turns them into exit code 3.
+    Both files (and the summary, when given) are read and checked before the database is
+    opened. Unexpected exceptions propagate; ``main`` turns them into exit code 3.
     """
     try:
         source_file = check_source_file(source_file)
@@ -272,6 +315,13 @@ def run(
         quarantine_rows = read_validated_csv(
             quarantine_dir / source_file, QUARANTINE, source_file
         )
+        check_same_run(source_file, orders_rows, quarantine_rows)
+        if summary_json is not None:
+            try:
+                summary = batch_guard.load_summary(summary_json)
+            except batch_guard.InvalidInputError as exc:
+                raise InvalidInputError(str(exc)) from None
+            check_summary(summary, source_file, len(orders_rows), len(quarantine_rows))
         database.parent.mkdir(parents=True, exist_ok=True)
         with duckdb.connect(str(database)) as con:
             result = load(con, source_file, orders_rows, quarantine_rows)
@@ -302,9 +352,24 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_DATABASE,
         help=f"DuckDB file (default {DEFAULT_DATABASE}, the dbt dev target).",
     )
+    parser.add_argument(
+        "--summary-json",
+        type=Path,
+        default=None,
+        help=(
+            "Summary written by ingestion.validate_orders --summary-json for the same file; "
+            "when given, the row counts of both files must match it."
+        ),
+    )
     args = parser.parse_args(argv)
     try:
-        return run(args.source_file, args.staging_dir, args.quarantine_dir, args.database)
+        return run(
+            args.source_file,
+            args.staging_dir,
+            args.quarantine_dir,
+            args.database,
+            args.summary_json,
+        )
     except Exception as exc:  # noqa: BLE001 - entry point: becomes exit code 3
         # DuckDB messages may quote values or paths: print only the type.
         print(f"unexpected error ({type(exc).__name__}); RAW unchanged", file=sys.stderr)
