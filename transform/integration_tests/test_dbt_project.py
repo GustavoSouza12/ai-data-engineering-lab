@@ -20,6 +20,8 @@ from pathlib import Path
 import duckdb
 import pytest
 
+from ingestion import generate_orders
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PROJECT_DIR = REPO_ROOT / "transform"
 SAMPLE_RAW = REPO_ROOT / "data" / "raw" / "orders" / "orders_2026-11-19.csv"
@@ -37,6 +39,8 @@ SEMANTIC_TESTS_THAT_PASS = (
     "ts009_fct_orders_status_accepted",
 )
 CONFLICT_TEST = "assert_no_cross_file_conflicting_versions"
+CONFLICT_MODEL = "dq_orders_cross_file_conflicts"
+CONFLICT_REASON = "conflicting_version_cross_file"
 GOVERNED_RESOURCE_TYPES = ("model", "seed")
 PII_LEVELS = {"restricted", "confidential", "internal", "public"}
 
@@ -75,7 +79,7 @@ def _validate(raw_files: list[Path], staging_dir: Path, quarantine_dir: Path) ->
         )
 
 
-def _build(tmp: Path, raw_files: list[Path]) -> Build:
+def _build(tmp: Path, raw_files: list[Path], extra_vars: dict | None = None) -> Build:
     staging = tmp / "staging"
     _validate(raw_files, staging, tmp / "quarantine")
     database = tmp / "lab_test.duckdb"
@@ -97,7 +101,7 @@ def _build(tmp: Path, raw_files: list[Path]) -> Build:
             "--log-path",
             str(tmp / "logs"),
             "--vars",
-            json.dumps({"orders_staging_dir": str(staging)}),
+            json.dumps({"orders_staging_dir": str(staging), **(extra_vars or {})}),
         ],
         cwd=PROJECT_DIR,
         env={**os.environ, "LAB_DUCKDB_PATH": str(database)},
@@ -115,11 +119,15 @@ def sample_build(tmp_path_factory: pytest.TempPathFactory) -> Build:
     return _build(tmp_path_factory.mktemp("sample"), [SAMPLE_RAW])
 
 
-@pytest.fixture(scope="module")
-def conflict_build(tmp_path_factory: pytest.TempPathFactory) -> Build:
+def _conflict_fixture_files() -> list[Path]:
     raw_files = sorted(CROSS_FILE_FIXTURE.glob("orders_*.csv"))
     assert len(raw_files) == 2
-    return _build(tmp_path_factory.mktemp("conflict"), raw_files)
+    return raw_files
+
+
+@pytest.fixture(scope="module")
+def conflict_build(tmp_path_factory: pytest.TempPathFactory) -> Build:
+    return _build(tmp_path_factory.mktemp("conflict"), _conflict_fixture_files())
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +210,10 @@ def test_reconciliation_and_relationship_tests_pass(sample_build: Build):
         assert sample_build.statuses[name] == "pass", name
 
 
+def test_sample_has_no_cross_file_conflict(sample_build: Build):
+    assert sample_build.query(f"select count(*) from main.{CONFLICT_MODEL}") == [(0,)]
+
+
 def test_org_summary_keeps_organizations_without_orders(sample_build: Build):
     assert sample_build.query("select count(*) from main.org_summary") == [(20,)]
     empty = sample_build.query(
@@ -263,23 +275,98 @@ def test_every_column_has_pii_level_and_gold_has_owner(sample_build: Build):
 # ---------------------------------------------------------------------------
 
 
-def test_cross_file_conflict_fails_the_build(conflict_build: Build):
-    assert not conflict_build.success
-    assert conflict_build.statuses[CONFLICT_TEST] == "fail"
-    failed = {
-        name
+def test_cross_file_conflict_warns_and_the_build_publishes(conflict_build: Build):
+    # ADR-0009 amendment (2026-11-23): one conflicted order never blocks the others.
+    assert conflict_build.success
+    assert conflict_build.statuses[CONFLICT_TEST] == "warn"
+    not_passing = {
+        name: status
         for name, status in conflict_build.statuses.items()
-        if status in ("fail", "error")
+        if status not in ("pass", "success")
     }
-    assert failed == {CONFLICT_TEST}
+    assert not_passing == {CONFLICT_TEST: "warn"}
 
 
 def test_cross_file_conflict_reports_only_the_conflicting_order(conflict_build: Build):
     rows = conflict_build.query(
-        f"select order_id, n_versions, n_source_files, source_files"
+        "select order_id, n_conflicting_versions, n_occurrences, n_source_files, source_files"
         f' from {AUDIT_SCHEMA}."{CONFLICT_TEST}"'
     )
-    assert rows == [("ORD-90001", 2, 2, "orders_2026-11-12.csv, orders_2026-11-13.csv")]
+    assert rows == [("ORD-90001", 1, 2, 2, "orders_2026-11-12.csv, orders_2026-11-13.csv")]
+
+
+def test_cross_file_conflict_goes_to_quarantine_with_every_occurrence(conflict_build: Build):
+    rows = conflict_build.query(
+        "select order_id, updated_at::varchar, investor_id, amount::varchar,"
+        f" _source_file, reject_reason from main.{CONFLICT_MODEL}"
+        " order by _source_file"
+    )
+    assert rows == [
+        (
+            "ORD-90001",
+            "2026-11-10 09:00:00",
+            "INV-0001",
+            "1000.00",
+            "orders_2026-11-12.csv",
+            CONFLICT_REASON,
+        ),
+        (
+            "ORD-90001",
+            "2026-11-10 09:00:00",
+            "INV-0009",
+            "1500.00",
+            "orders_2026-11-13.csv",
+            CONFLICT_REASON,
+        ),
+    ]
+
+
+def test_cross_file_conflict_leaves_gold_and_the_others_publish(conflict_build: Build):
+    expected = [("ORD-90002",), ("ORD-90003",)]
+    for model in ("int_orders__latest", "fct_orders"):
+        rows = conflict_build.query(f"select order_id from main.{model} order by order_id")
+        assert rows == expected, model
+    totals = conflict_build.query(
+        "select sum(order_count) from main.org_summary where organization_id = 'ORG-001'"
+    )
+    assert totals == [(0,)]
+
+
+def test_long_flagged_chain_stays_at_warn(tmp_path: Path):
+    # The threshold is per batch (ADR-0009 amendment): 12 daily files with one conflict
+    # each give 12 conflicted orders in total, above the threshold of 10, but only the
+    # conflict that involves the newest file counts. TS-020 is not checked here: the
+    # fx_rates seed does not cover the dates of later daily files.
+    raw = tmp_path / "raw"
+    n_files = 13
+    argv = ["--days", str(n_files), "--output-dir", str(raw), "--plant-cross-file-conflict"]
+    assert generate_orders.main(argv) == 0
+    raw_files = sorted(raw.glob("orders_*.csv"))
+    assert len(raw_files) == n_files
+    build = _build(tmp_path, raw_files)
+    assert build.statuses[CONFLICT_TEST] == "warn"
+    conflicted = build.query(f"select count(distinct order_id) from main.{CONFLICT_MODEL}")
+    assert conflicted == [(n_files - 1,)]
+    assert n_files - 1 > 10  # above the default threshold if it were cumulative
+    newest = build.query(
+        f'select order_id, n_source_files, source_files from {AUDIT_SCHEMA}."{CONFLICT_TEST}"'
+    )
+    assert len(newest) == 1
+    assert newest[0][1] == 2
+    assert newest[0][2].endswith(raw_files[-1].name)
+    in_gold = build.query(
+        "select count(*) from main.int_orders__latest"
+        f" where order_id in (select order_id from main.{CONFLICT_MODEL})"
+    )
+    assert in_gold == [(0,)]
+
+
+def test_cross_file_conflicts_above_the_threshold_fail_the_build(tmp_path: Path):
+    build = _build(
+        tmp_path, _conflict_fixture_files(), {"cross_file_conflict_error_threshold": 0}
+    )
+    assert not build.success
+    assert build.statuses[CONFLICT_TEST] == "fail"
 
 
 def test_cross_file_exact_duplicate_is_deduplicated_after_trim(conflict_build: Build):

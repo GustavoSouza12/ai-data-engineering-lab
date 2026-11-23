@@ -268,7 +268,7 @@ Every control point chooses between two errors: publishing wrong data (permissiv
 |---|---|---|---|---|---|
 | Row with a structural error | Ingestion | Permissive per row | The row goes to quarantine; the rest continues | One bad order should not stop the business | ADR-0002, ADR-0011 |
 | Quarantine volume | Ingestion (LQ) | Conservative per batch | Above the limit, the DAG stops | Many rejections = broken file or source | ADR-0011 |
-| Version conflict, including an incomplete row with the same key | Ingestion | Conservative | Both occurrences go to quarantine | No rule says which one is true | ADR-0009 (F1) |
+| Version conflict, including an incomplete row with the same key | Ingestion (inside one file); dbt (across daily files) | Conservative with the order | Every occurrence goes to quarantine; across files the whole order leaves gold, the test warns and errors only above a threshold | No rule says which one is true; one order does not stop the others | ADR-0009 (F1, amendment 2026-11-23) |
 | Versions and exact duplicates | Staging / intermediate | Permissive | `row_number` by `updated_at` | There is a business rule: the latest version wins | ADR-0009 |
 | Late source | Freshness (FR) | Conservative | `error_after` | Publishing incomplete data looks like correct data | ADR-0010 |
 | Semantic test | Audit (TST) | By threshold | `warn_if` publishes and warns; `error_if` stops | Small noise × systemic breakage | ADR-0011 |
@@ -333,6 +333,7 @@ Every control point chooses between two errors: publishing wrong data (permissiv
 models/
   staging/        stg_<source>__<table>   views, cast + rename + known dedup
   intermediate/   int_order_events_sequenced, int_fund_classification_mapped
+  dq/             dq_orders_cross_file_conflicts (quarantine of cross-file version conflicts, ADR-0009)
   gold/
     orders/       fct_orders, fct_order_events, fct_sponsor_reviews (NIGO)
     funds/        dim_fund (official taxonomy), fct_fund_completeness

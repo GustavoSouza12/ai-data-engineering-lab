@@ -9,6 +9,8 @@ models:
     description: >
       Gold orders: one row per order (current version) with the original amount and
       currency plus amount_usd at the rate of the submitted_at date (ADR-0013).
+      Orders with a cross-file version conflict are not here; they are in
+      dq_orders_cross_file_conflicts (ADR-0009, amendment 2026-11-23).
       Never sum amount across currencies; use amount_usd or group by currency.
     config:
       meta:

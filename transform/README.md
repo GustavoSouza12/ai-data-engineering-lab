@@ -31,7 +31,8 @@ folder of validated CSVs. Both are relative to the directory dbt runs from.
 ```
 data/staging/orders/*.csv (source orders_staging.orders, every column as text)
   -> stg_orders            view   trim (like Python str.strip), then drop exact duplicates, then cast
-  -> int_orders__latest    view   one row per order_id, latest updated_at (ADR-0009)
+  |-> dq_orders_cross_file_conflicts table  every occurrence of a version key with different content across files
+  -> int_orders__latest    view   one row per order_id, latest updated_at, without conflicted orders (ADR-0009)
   -> fct_orders            table  + rate_to_usd and amount_usd at the submitted_at date (ADR-0013)
   -> org_summary           view   marts/internal, one row per organization (seed), USD only
 seeds: organizations (ORG-001 to ORG-020), fx_rates (2026-11-01 to 2026-11-12, USD/EUR/BRL)
@@ -42,7 +43,18 @@ are combined. Copies of the same version in different files are exact duplicates
 (compared on the contract columns, after trimming) and only the first load is kept.
 
 On the sample: 272 validated rows -> 270 in `stg_orders` -> 190 in `int_orders__latest` and
-`fct_orders` -> 20 organizations in `org_summary` (ORG-016 to ORG-020 with zeros).
+`fct_orders` -> 20 organizations in `org_summary` (ORG-016 to ORG-020 with zeros);
+`dq_orders_cross_file_conflicts` is empty.
+
+### Cross-file version conflicts (ADR-0009, amendment 2026-11-23)
+
+Ingestion quarantines a conflict inside one file but sees one file at a time. dbt catches
+the same version key (`order_id`, `updated_at`) with different content in different daily
+files: every occurrence goes to `dq_orders_cross_file_conflicts` with its `_source_file`
+and `reject_reason = conflicting_version_cross_file`, and the whole order is left out of
+`int_orders__latest`, `fct_orders` and `org_summary`. No occurrence is picked as the winner
+(never by `_loaded_at` or file position), and an older version is not published as the
+current one. The other orders publish normally.
 
 ## Tests
 
@@ -53,15 +65,20 @@ On the sample: 272 validated rows -> 270 in `stg_orders` -> 190 in `int_orders__
 | TS-010 | `amount` castable and > 0 | T3 |
 | TS-011 | `assert_orders_reconcile_latest_to_gold`: count and `amount` sum per currency, `int_orders__latest` x `fct_orders` | error |
 | TS-012 | `submitted_at <= updated_at` and `updated_at` date <= date in the file name | T3 |
-| TS-019 | `int_orders__latest.order_id` unique and not null; `assert_int_orders__latest_is_latest_version` | error |
+| TS-019 | `int_orders__latest.order_id` unique and not null; `assert_int_orders__latest_is_latest_version` (latest version of every order without a cross-file conflict, no conflicted order) | error |
 | TS-020 | `fct_orders.organization_id` -> `organizations`; `assert_every_order_has_fx_rate` | error |
 | TS-021 | `org_summary.organization_id` unique and not null; `assert_org_summary_reconciles_with_gold` (20 organizations, totals = gold) | error |
-| TS-026 | `assert_no_cross_file_conflicting_versions` (ADR-0009): same (`order_id`, `updated_at`), different content, across daily files | error (var `cross_file_conflict_severity`) |
+| TS-026 | `assert_no_cross_file_conflicting_versions` (ADR-0009 amendment): one row per order in `dq_orders_cross_file_conflicts` with an occurrence in the newest daily file | T3, threshold `cross_file_conflict_error_threshold` per batch |
 
-The cross-file conflict test errors by default (ADR-0009: no silent resolution). How gold
-should treat such a conflict is pending the owner's decision; until then the severity lives
-only in the `cross_file_conflict_severity` var of `dbt_project.yml`, and there is no
-exclusion or quarantine logic for it.
+The cross-file conflict test follows T3, per batch: it counts only the conflicted orders
+with an occurrence in the newest daily file (latest `_source_file_date`), warns from the
+first one and errors only above `cross_file_conflict_error_threshold` of them (var,
+default 10: one conflicted order never trips it; more than 10 in one batch means the
+source's versioning is broken). Conflicts brought by earlier batches stay in
+`dq_orders_cross_file_conflicts` and out of gold but no longer count, so a long chain of
+daily files with one conflict each stays at warn. Its failures are stored like the
+others. `cross_file_conflict_severity` stays `error`, because dbt applies `error_if` only
+at severity `error`.
 
 Seeds are tested too (keys, accepted values, `rate_to_usd > 0`).
 
@@ -86,7 +103,10 @@ uv run pytest transform/integration_tests -v
 They cover TS-025 and TS-026. They run the validator and `dbt build` into a temporary directory (nothing is written to the
 repository) and check the counts above, the stored failures, `amount_usd`, the governance
 metadata and, with the two-file fixture in `integration_tests/fixtures/cross_file_conflict/`,
-that a conflict across daily files fails the build.
+that a conflict across daily files warns, sends both occurrences to
+`dq_orders_cross_file_conflicts`, leaves that order out of gold and publishes the others,
+that it fails the build when the threshold is set to 0, and that a chain of 13 files
+generated with `--plant-cross-file-conflict` (12 conflicted orders) stays at warn.
 
 ## Governance
 

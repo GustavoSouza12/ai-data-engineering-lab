@@ -37,6 +37,17 @@ def files() -> list[tuple[date, list[dict]]]:
 
 
 @pytest.fixture(scope="module")
+def conflict_files() -> list[tuple[date, list[dict]]]:
+    """The same chain with --plant-cross-file-conflict."""
+    return list(islice(go.iter_daily_files(plant_cross_file_conflict=True), N_CHECKED_DAYS))
+
+
+@pytest.fixture(params=["default", "with_conflict"])
+def any_files(request, files, conflict_files):
+    return files if request.param == "default" else conflict_files
+
+
+@pytest.fixture(scope="module")
 def planted_ids() -> set[str]:
     return go._generate_base(go.SEED)[1]
 
@@ -77,15 +88,31 @@ def test_same_date_same_bytes(tmp_path):
     assert (b / "orders_2026-11-20.csv").read_bytes() != (b / name).read_bytes()
 
 
+def test_flag_does_not_change_the_base_sample(tmp_path):
+    assert go.main(["--output-dir", str(tmp_path), "--plant-cross-file-conflict"]) == 0
+    assert (tmp_path / SAMPLE.name).read_bytes() == SAMPLE.read_bytes()
+
+
+def test_same_date_same_bytes_with_the_flag(tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    flag = "--plant-cross-file-conflict"
+    assert go.main(["--date", "2026-11-22", "--output-dir", str(a), flag]) == 0
+    assert go.main(["--date", "2026-11-20", "--days", "3", "--output-dir", str(b), flag]) == 0
+    name = "orders_2026-11-22.csv"
+    assert (a / name).read_bytes() == (b / name).read_bytes()
+
+
 def test_seed_is_derived_from_the_date():
     assert go.day_seed(go.BASE_DATE) == go.SEED
     assert go.day_seed(date(2026, 11, 20)) == go.SEED + 1
     assert go.day_seed(date(2026, 11, 20), seed=7) == 8
 
 
-def test_generate_orders_for_date(files):
+def test_generate_orders_for_date(files, conflict_files):
     assert go.generate_orders_for_date(go.BASE_DATE) == go.generate_orders(go.SEED)
     assert go.generate_orders_for_date(files[3][0]) == files[3][1]
+    planted = go.generate_orders_for_date(files[3][0], plant_cross_file_conflict=True)
+    assert planted == conflict_files[3][1]
     with pytest.raises(ValueError):
         go.generate_orders_for_date(date(2026, 11, 18))
 
@@ -110,8 +137,10 @@ def test_cli_rejects_invalid_arguments(argv, tmp_path, capsys):
 # Content of the daily files --------------------------------------------------------------
 
 
-def test_daily_files_have_the_documented_counts(files):
-    for file_date, rows, earlier, previous in _daily(files):
+def test_daily_files_have_the_documented_counts(files, conflict_files):
+    for _, rows, _, _ in _daily(conflict_files):
+        assert len(rows) == go.N_DAILY_ROWS_WITH_CONFLICT
+    for file_date, rows, earlier, _ in _daily(files):
         assert len(rows) == go.N_DAILY_ROWS
         assert list(rows[0]) == list(vo.REQUIRED_COLUMNS)
         new_ids = {r["order_id"] for r in rows} - {r["order_id"] for r in earlier}
@@ -120,8 +149,8 @@ def test_daily_files_have_the_documented_counts(files):
         assert rows == sorted(rows, key=lambda r: (r["updated_at"], r["order_id"]))
 
 
-def test_daily_new_orders(files):
-    for file_date, rows, earlier, _ in _daily(files):
+def test_daily_new_orders(any_files):
+    for file_date, rows, earlier, _ in _daily(any_files):
         seen = {r["order_id"] for r in earlier}
         new = [r for r in rows if r["order_id"] not in seen]
         assert len(new) == go.N_DAILY_NEW_ORDERS
@@ -131,8 +160,8 @@ def test_daily_new_orders(files):
             assert r["updated_at"][:10] == file_date.isoformat()
 
 
-def test_daily_new_versions_of_previous_file_orders(files):
-    for file_date, rows, earlier, previous in _daily(files):
+def test_daily_new_versions_of_previous_file_orders(any_files):
+    for file_date, rows, earlier, previous in _daily(any_files):
         earlier_keys = {_key(r) for r in earlier}
         previous_ids = {r["order_id"] for r in previous}
         on_day = [
@@ -157,8 +186,8 @@ def test_daily_new_versions_of_previous_file_orders(files):
             )
 
 
-def test_daily_late_version(files):
-    for file_date, rows, earlier, _ in _daily(files):
+def test_daily_late_version(any_files):
+    for file_date, rows, earlier, _ in _daily(any_files):
         earlier_keys = {_key(r) for r in earlier}
         file_start = datetime.combine(file_date, datetime.min.time())
         late = [
@@ -176,8 +205,27 @@ def test_daily_late_version(files):
             assert r["updated_at"] > max(e["updated_at"] for e in history)
 
 
-def test_daily_cross_file_conflict(files):
-    for _, rows, earlier, previous in _daily(files):
+def test_default_daily_files_have_no_cross_file_conflict(files):
+    # Default runs repeat no version key of an earlier file (ADR-0009, amendment 2026-11-23).
+    for _, rows, earlier, _ in _daily(files):
+        earlier_keys = {_key(r) for r in earlier}
+        assert not [r for r in rows if _key(r) in earlier_keys]
+        assert len({_key(r) for r in rows}) == len(rows)
+
+
+def test_flag_adds_one_row_to_the_first_daily_file(files, conflict_files):
+    # Same rng draws up to the conflict, which is the last step of a daily file. Later files
+    # differ because the conflicted order is frozen.
+    default_rows, planted_rows = files[1][1], conflict_files[1][1]
+    default_keys = {_key(r) for r in default_rows}
+    extra = [r for r in planted_rows if r not in default_rows]
+    assert [r for r in planted_rows if r in default_rows] == default_rows
+    assert len(extra) == go.N_DAILY_CROSS_FILE_CONFLICTS
+    assert not {_key(r) for r in extra} & default_keys
+
+
+def test_daily_cross_file_conflict_with_the_flag(conflict_files):
+    for _, rows, earlier, previous in _daily(conflict_files):
         previous_by_key = {_key(r): r for r in previous}
         earlier_keys = {_key(r) for r in earlier}
         repeated = [r for r in rows if _key(r) in earlier_keys]
@@ -190,17 +238,17 @@ def test_daily_cross_file_conflict(files):
         assert len({_key(r) for r in rows}) == len(rows)  # no conflict inside the file
 
 
-def test_daily_files_leave_planted_orders_and_conflicts_alone(files, planted_ids):
+def test_daily_files_leave_planted_orders_and_conflicts_alone(any_files, planted_ids):
     frozen = set(planted_ids)
-    for _, rows, earlier, _ in _daily(files):
+    for _, rows, earlier, _ in _daily(any_files):
         earlier_keys = {_key(r) for r in earlier}
         assert not {r["order_id"] for r in rows} & frozen
         frozen |= {r["order_id"] for r in rows if _key(r) in earlier_keys}
 
 
-def test_daily_files_are_semantically_clean(files):
+def test_daily_files_are_semantically_clean(any_files):
     # The 3 planted semantic errors of the base file stay the only ones (ADR-0017, T3).
-    for file_date, rows, _, _ in _daily(files):
+    for file_date, rows, _, _ in _daily(any_files):
         file_end = datetime.combine(file_date, datetime.max.time()).isoformat(timespec="seconds")
         for r in rows:
             assert all(r[c].strip() == r[c] != "" for c in vo.REQUIRED_COLUMNS)
@@ -213,11 +261,13 @@ def test_daily_files_are_semantically_clean(files):
 
 
 def test_ingestion_does_not_see_the_cross_file_conflict(tmp_path):
-    # Detecting it is the job of the dbt test across files (MVP-02), not of the validator.
+    # Detecting it is the job of dbt across files (MVP-02, ADR-0009 amendment), not of the
+    # validator, which sees one file at a time.
     raw = tmp_path / "raw"
-    assert go.main(["--date", "2026-11-20", "--output-dir", str(raw)]) == 0
+    argv = ["--date", "2026-11-20", "--output-dir", str(raw), "--plant-cross-file-conflict"]
+    assert go.main(argv) == 0
     name = "orders_2026-11-20.csv"
     code = vo.run(raw / name, RUN_TS, tmp_path / "staging", tmp_path / "quarantine")
     assert code == 0
-    assert len(_read(tmp_path / "staging" / name)) == go.N_DAILY_ROWS
+    assert len(_read(tmp_path / "staging" / name)) == go.N_DAILY_ROWS_WITH_CONFLICT
     assert _read(tmp_path / "quarantine" / name) == []

@@ -14,7 +14,7 @@ History of D-001 to D-007. New architecture decisions live in `memory/decisions/
 | [ADR-0006](decisions/ADR-0006-git-github-agent-flow.md) | Git/GitHub flow with agents | accepted, amended by ADR-0016 |
 | [ADR-0007](decisions/ADR-0007-lab-confidentiality.md) | Lab confidentiality | accepted |
 | [ADR-0008](decisions/ADR-0008-walking-skeleton.md) | Walking skeleton: Snowflake and dbt already in phase 0 | accepted, sequence changed by ADR-0017 |
-| [ADR-0009](decisions/ADR-0009-orders-versioning.md) | `orders` versioning: exact duplicate, version and conflict | accepted |
+| [ADR-0009](decisions/ADR-0009-orders-versioning.md) | `orders` versioning: exact duplicate, version and conflict | accepted, amended on 2026-11-23 (cross-file conflicts) |
 | [ADR-0010](decisions/ADR-0010-incremental-pipeline.md) | Incremental, late data, deletes and safe reruns | accepted (design) |
 | [ADR-0011](decisions/ADR-0011-quarantine-flow.md) | Quarantine, data quality issues and notification | accepted (design) |
 | [ADR-0012](decisions/ADR-0012-serving-customer-app.md) | Serving data to a customer-facing application | accepted (principle) |

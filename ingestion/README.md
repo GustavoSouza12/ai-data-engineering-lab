@@ -30,6 +30,7 @@ date, and the default, is `2026-11-19`: it reproduces the versioned sample byte 
 ```
 uv run python -m ingestion.generate_orders                                 # the sample
 uv run python -m ingestion.generate_orders --date 2026-11-20 --days 3      # 3 daily files
+uv run python -m ingestion.generate_orders --date 2026-11-20 --plant-cross-file-conflict
 uv run python -m ingestion.generate_orders --output data/raw/orders/orders_2026-11-19.csv
 ```
 
@@ -61,15 +62,20 @@ Total: 284 rows -> 272 in staging + 12 in quarantine.
 
 ### Daily files (from `2026-11-20`): incremental extracts
 
-Every file of date D after the sample has exactly 27 rows (constants `N_DAILY_*`), all
-structurally valid, so ingestion sends 27 to staging and 0 to quarantine:
+Every file of date D after the sample has exactly 26 rows (constants `N_DAILY_*`), all
+structurally valid, so ingestion sends 26 to staging and 0 to quarantine. With
+`--plant-cross-file-conflict` it has 27: one cross-file conflict more.
 
 | Rows | Count | Content |
 |---|---|---|
 | New versions | 10 | open orders whose latest version is in the file of D-1; `updated_at` on day D, after the previous version; `status` advances (`NEXT_STATUSES`), `amount` may change |
 | New orders | 15 | `ORD-<200 + 15 * (k - 1) + 1>` onwards, for the k-th day after the sample; one version, `submitted`, `submitted_at = updated_at` on day D |
 | Late version | 1 | new version of an older open order with `updated_at` on day D-2: more than 1 day old, inside the 3-day lookback (ADR-0010) |
-| Cross-file conflict | 1 | same (`order_id`, `updated_at`) as a row of the file of D-1, different `amount`; the validator works per file and does not see it, the cross-file dbt test (MVP-02) does |
+| Cross-file conflict | 1, only with `--plant-cross-file-conflict` | same (`order_id`, `updated_at`) as a row of the file of D-1, different `amount`; the validator works per file and does not see it; dbt sends every occurrence to `dq_orders_cross_file_conflicts`, leaves the order out of gold and warns (ADR-0009, amendment 2026-11-23) |
+
+Without the flag, no daily file repeats a version key of an earlier file. The flag applies
+to the whole chain, so the bytes of a date depend on the flag but never on how the command
+is called; the sample (`2026-11-19`) is the same either way.
 
 Daily files add no semantic errors (the 3 of the sample stay the only ones) and never touch
 an order with a planted error or one already used for a cross-file conflict.

@@ -1,7 +1,7 @@
 # ADR-0009 — `orders` versioning
 
 - Date: 2026-11-19
-- Status: accepted (recommendation approved by the user)
+- Status: accepted (recommendation approved by the user); amended on 2026-11-23 (cross-file conflicts, see "Amendment")
 - Supersedes: ADR-0003. Changes: ADR-0002 (contract)
 
 ## Context
@@ -49,3 +49,22 @@ Key comparisons use the value with leading and trailing whitespace removed (`str
 - The F0.1 validator changes: `duplicate_order_id` goes away and is replaced by `conflicting_version`.
 - The generator now produces versions, exact duplicates and conflicts.
 - Every order metric starts from the latest version (`int_orders__latest`), never from RAW directly.
+
+## Amendment (2026-11-23): conflicts across daily files
+
+### Context
+Ingestion validates one file at a time, so it cannot see a conflict between two daily files: the same version key (`order_id`, `updated_at`) with different content in different files. The MVP-05 architecture review (finding S1) found that the daily generator planted one such conflict in every daily file, and that `int_orders__latest` (`order by updated_at desc, _loaded_at desc`) let the later-loaded file win silently, which is resolution by file position, rejected above. Options: (a) warn and keep the later-loaded row; (b) dbt quarantines the conflicted order; (c) the generator plants the conflict only on a fixed day or behind a flag.
+
+### Decision (the user's, 2026-11-23)
+- **Detection is in dbt.** A version key whose content differs across daily files is a conflict, the same rule as inside one file. `stg_orders` removes exact duplicates first (after `trim`), so any key still repeated there is a conflict.
+- **The conflicted order leaves gold and goes to quarantine/DQ.** Every occurrence of the conflicting key goes to `dq_orders_cross_file_conflicts`, with its `_source_file` and `reject_reason = conflicting_version_cross_file`. The whole order is left out of `int_orders__latest`, and so of `fct_orders` and everything downstream, not only the conflicting version: dropping only that version would publish an older version as the current one, another silent resolution. No winner is ever picked by `_loaded_at` or file position.
+- **One conflicted order never blocks publishing the others** (`architecture.md` 3.5: permissive with the individual record, conservative with the batch). The cross-file conflict test (TS-026) follows the T3 pattern (ADR-0017), per batch: it counts the conflicted orders with an occurrence in the newest daily file, with `warn` from the first one, `error_if` above `cross_file_conflict_error_threshold` of them (default 10), and `store_failures`. Many conflicted orders in one batch mean the source's versioning is broken, and then the build stops. The count is not cumulative: conflicts from earlier batches stay quarantined and out of gold but do not count again, so they never make every later build fail.
+- **The generator plants it only on request** (option c for the generator): daily files have no cross-file conflict unless `--plant-cross-file-conflict` is passed; with it, every daily file repeats one version key of the previous file with a different `amount`.
+
+### Rejected alternatives
+- (a) Warn and keep the later-loaded row: resolution by file position.
+- Fail the whole build on any conflict: one bad order would stop the publish of every other order.
+
+### Consequences
+- The "Conflict" row of the table above now has two places: Python ingestion inside one file (`conflicting_version`) and dbt across files (`conflicting_version_cross_file`). The "Version" row's `row_number` no longer breaks ties by `_loaded_at`: after conflicted orders are removed, the version key is unique.
+- A conflicted order stays out of gold; how a source correction re-admits it is not defined yet (ADR-0011 `DQ_ISSUES` lifecycle). Its rows stay in `stg_orders` and RAW.
