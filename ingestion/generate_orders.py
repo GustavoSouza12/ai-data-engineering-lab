@@ -7,9 +7,14 @@ and planted errors, generated with ``random.Random(42)``. Every later date is a
 daily incremental file built on the days before it, with seed ``42 + days since
 the base date``: the same date always produces the same bytes.
 
+Daily files carry no cross-file version conflict unless ``--plant-cross-file-conflict``
+is passed (ADR-0009, amendment of 2026-11-23): then every daily file repeats one version
+key of the previous file with a different ``amount``.
+
 Usage:
     uv run python -m ingestion.generate_orders                      # the base sample
     uv run python -m ingestion.generate_orders --date 2026-11-20 --days 3
+    uv run python -m ingestion.generate_orders --date 2026-11-20 --plant-cross-file-conflict
     uv run python -m ingestion.generate_orders --output data/raw/orders/orders_2026-11-19.csv
 """
 
@@ -221,10 +226,10 @@ def _generate_base(seed: int) -> tuple[list[Row], set[str]]:
 N_DAILY_UPDATES = 10  # new versions of orders whose latest version is in the previous file
 N_DAILY_NEW_ORDERS = 15  # orders never seen before, one version each, status "submitted"
 N_DAILY_LATE_VERSIONS = 1  # a new version whose updated_at is on day D-2 of a file dated D
-N_DAILY_CROSS_FILE_CONFLICTS = 1  # same (order_id, updated_at) as a previous-file row
-N_DAILY_ROWS = (
-    N_DAILY_UPDATES + N_DAILY_NEW_ORDERS + N_DAILY_LATE_VERSIONS + N_DAILY_CROSS_FILE_CONFLICTS
-)
+N_DAILY_ROWS = N_DAILY_UPDATES + N_DAILY_NEW_ORDERS + N_DAILY_LATE_VERSIONS
+# Only with --plant-cross-file-conflict: same (order_id, updated_at) as a previous-file row.
+N_DAILY_CROSS_FILE_CONFLICTS = 1
+N_DAILY_ROWS_WITH_CONFLICT = N_DAILY_ROWS + N_DAILY_CROSS_FILE_CONFLICTS
 LATE_DAYS_BEFORE = 2  # more than 1 day before the file date, inside the 3-day lookback
 
 BASE_DATE = date(2026, 11, 19)  # date of the versioned sample, generated with the base seed
@@ -274,7 +279,9 @@ def _new_version(rng: random.Random, row: Row, updated: datetime) -> Row:
     return new
 
 
-def _daily_rows(rng: random.Random, file_date: date, history: _History) -> list[Row]:
+def _daily_rows(
+    rng: random.Random, file_date: date, history: _History, plant_cross_file_conflict: bool
+) -> list[Row]:
     """Rows of the incremental file of ``file_date``; updates ``history`` in place."""
     day_start = datetime.combine(file_date, datetime.min.time())
 
@@ -315,7 +322,24 @@ def _daily_rows(rng: random.Random, file_date: date, history: _History) -> list[
         rows.append(_new_version(rng, history.latest[oid], during(late_day)))
         used.add(oid)
 
-    # A previous-file row whose key is unique there; the copy changes only the amount.
+    if plant_cross_file_conflict:
+        rows.extend(_cross_file_conflicts(rng, history, used))
+
+    for r in rows:
+        oid = r["order_id"]
+        if oid not in history.frozen:
+            history.latest[oid] = r
+    rows.sort(key=lambda r: (r["updated_at"], r["order_id"]))
+    assert len(rows) == (N_DAILY_ROWS_WITH_CONFLICT if plant_cross_file_conflict else N_DAILY_ROWS)
+    history.previous_rows = rows
+    return [_with_contract_order(r) for r in rows]
+
+
+def _cross_file_conflicts(rng: random.Random, history: _History, used: set[str]) -> list[Row]:
+    """Copies of previous-file rows whose key is unique there; only the amount changes.
+
+    The conflicted orders are frozen: no later file touches them again.
+    """
     key_counts: dict[tuple[str, str], int] = {}
     for r in history.previous_rows:
         key = (r["order_id"], r["updated_at"])
@@ -329,26 +353,25 @@ def _daily_rows(rng: random.Random, file_date: date, history: _History) -> list[
     ]
     if len(candidates) < N_DAILY_CROSS_FILE_CONFLICTS:
         raise RuntimeError("not enough candidate rows for cross-file conflicts")
+    copies: list[Row] = []
     for original in rng.sample(candidates, N_DAILY_CROSS_FILE_CONFLICTS):
         copy = dict(original)
         while copy["amount"] == original["amount"]:
             copy["amount"] = _amount(rng)
-        rows.append(copy)
+        copies.append(copy)
         history.frozen.add(original["order_id"])
         history.latest.pop(original["order_id"], None)
-
-    for r in rows:
-        oid = r["order_id"]
-        if oid not in history.frozen:
-            history.latest[oid] = r
-    rows.sort(key=lambda r: (r["updated_at"], r["order_id"]))
-    assert len(rows) == N_DAILY_ROWS
-    history.previous_rows = rows
-    return [_with_contract_order(r) for r in rows]
+    return copies
 
 
-def iter_daily_files(seed: int = SEED) -> Iterator[tuple[date, list[Row]]]:
-    """Yield ``(file_date, rows)`` from the base date on, one day at a time, forever."""
+def iter_daily_files(
+    seed: int = SEED, plant_cross_file_conflict: bool = False
+) -> Iterator[tuple[date, list[Row]]]:
+    """Yield ``(file_date, rows)`` from the base date on, one day at a time, forever.
+
+    With ``plant_cross_file_conflict`` every daily file of the chain gets one cross-file
+    conflict, so the bytes of a date depend on the flag but never on how it is called.
+    """
     base_rows, planted_ids = _generate_base(seed)
     yield BASE_DATE, base_rows
     latest: dict[str, Row] = {}
@@ -362,14 +385,17 @@ def iter_daily_files(seed: int = SEED) -> Iterator[tuple[date, list[Row]]]:
     file_date = BASE_DATE
     while True:
         file_date += timedelta(days=1)
-        yield file_date, _daily_rows(random.Random(day_seed(file_date, seed)), file_date, history)
+        rng = random.Random(day_seed(file_date, seed))
+        yield file_date, _daily_rows(rng, file_date, history, plant_cross_file_conflict)
 
 
-def generate_orders_for_date(file_date: date, seed: int = SEED) -> list[Row]:
+def generate_orders_for_date(
+    file_date: date, seed: int = SEED, plant_cross_file_conflict: bool = False
+) -> list[Row]:
     """Rows of the file of ``file_date``: the base sample or a daily incremental file."""
     if file_date < BASE_DATE:
         raise ValueError(f"the first file date is {BASE_DATE.isoformat()}")
-    for d, rows in iter_daily_files(seed):
+    for d, rows in iter_daily_files(seed, plant_cross_file_conflict):
         if d == file_date:
             return rows
     raise AssertionError("unreachable")
@@ -432,12 +458,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--output", type=Path, help="Exact path of the CSV (only with --days 1).")
     parser.add_argument("--seed", type=int, default=SEED, help="Base seed (default 42).")
+    parser.add_argument(
+        "--plant-cross-file-conflict",
+        action="store_true",
+        help=(
+            "Plant one cross-file version conflict in every daily file (off by default; "
+            "dbt quarantines the conflicted order, ADR-0009)."
+        ),
+    )
     args = parser.parse_args(argv)
     if args.output is not None and args.days != 1:
         parser.error("--output works only with --days 1; use --output-dir")
 
     last = args.date + timedelta(days=args.days - 1)
-    for file_date, rows in iter_daily_files(args.seed):
+    for file_date, rows in iter_daily_files(args.seed, args.plant_cross_file_conflict):
         if file_date < args.date:
             continue
         output = args.output or args.output_dir / output_name(file_date)
