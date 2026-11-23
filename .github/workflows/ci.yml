@@ -29,11 +29,12 @@ jobs:
         run: uv run sqlfluff lint transform/models
       - name: pytest
         run: uv run pytest
-      - name: generate and validate the sample
+      - name: generate, validate and load the sample into RAW
         run: |
           uv run python -m ingestion.generate_orders --output data/raw/orders/orders_2026-11-19.csv
           git diff --exit-code -- data/raw
           uv run python -m ingestion.validate_orders --input data/raw/orders/orders_2026-11-19.csv --run-ts 2026-11-19T03:00:00Z
+          uv run python -m ingestion.load_raw --source-file orders_2026-11-19.csv --database transform/lab_dev.duckdb
       - name: dbt deps, parse, build (DuckDB dev)
         working-directory: transform
         run: |

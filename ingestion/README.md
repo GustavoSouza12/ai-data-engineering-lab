@@ -202,6 +202,59 @@ The sample passes: 12/284 = 4.2%. The decision itself is the pure function
 | `2` | invalid input: missing summary, invalid JSON, counts that are missing, negative, not reconciled or inconsistent, limit outside 0 to 1 |
 | `3` | unexpected error (stderr shows only the exception type) |
 
+## Load RAW (local DuckDB)
+
+`ingestion/load_raw.py` loads the validator outputs of one daily file into the local `RAW`
+layer, mirroring what `COPY INTO` will do in Snowflake `RAW` (MVP-15a). The staging CSV goes
+to `raw.orders` and the quarantine CSV to `raw.orders_quarantine`, in
+`transform/lab_dev.duckdb` (the dbt `dev` target's file, ignored by git).
+
+```
+uv run python -m ingestion.load_raw --source-file orders_2026-11-19.csv
+```
+
+- `--source-file` is the file name of the daily file (never a path) and the idempotency key.
+  `--staging-dir` and `--quarantine-dir` default to the validator's folders; `--database`
+  defaults to `transform/lab_dev.duckdb`. `--summary-json` (optional, passed by
+  `scripts/run_local_pipeline.sh`) is the validator summary of the same file.
+- Every column is `VARCHAR`, exactly as the validator wrote it (no trim, no cast): the
+  contract columns in contract order, then `_source_file` and `_loaded_at`, plus
+  `reject_reason` in the quarantine. dbt trims and casts. An empty field is stored as an
+  empty string, not NULL (only quarantine rows have empty fields); the Snowflake load
+  (MVP-15a) must keep empty fields as empty strings too (`EMPTY_FIELD_AS_NULL = FALSE`) so
+  both RAW layers hold the same values.
+- `_loaded_at` is the validator's `--run-ts` (the logical load time), not the wall-clock
+  time of the load, so a rerun stores the same bytes.
+- Idempotent per `_source_file`: in **one transaction**, both tables lose the rows of that
+  file (`DELETE`) and get the new ones (`INSERT`). Rerunning a file gives the same counts
+  (272/12 on the sample) and other days are untouched, so several days coexist.
+- Reconciliation inside the transaction: rows in each file = rows in its table for that
+  `_source_file`. On a mismatch everything is rolled back; any error also rolls back, so RAW
+  is never left partially loaded.
+- Both files are read and checked before the database is opened: the header must have
+  exactly the columns of its table (any order), every row the same number of fields as the
+  header and every `_source_file` must be `--source-file`. A table whose columns, types or
+  `NOT NULL` constraints differ from the contract is rejected too.
+- A torn pair (limitation A2) is refused: both files must carry one single `_loaded_at`, so
+  a staging file and a quarantine file from two validator runs never reach RAW. With
+  `--summary-json`, the row counts of both files must also equal the summary's
+  `staging_rows` and `quarantine_rows`, and its `source_file` must be `--source-file`, which
+  also catches a pair torn between two runs with the same `--run-ts` whenever their counts
+  differ. In `scripts/run_local_pipeline.sh` a torn pair stops even earlier: the summary is
+  deleted before the validator runs and written only after both files are published, so
+  the batch guard finds no summary.
+- Access: locally `raw.orders_quarantine` only carries the source's `pii_level` tags; the
+  restricted access of ADR-0011 needs roles and arrives with Snowflake (MVP-15a).
+- Output: file name, table names and counts (`272 loaded (file 272, replaced 272)`), never
+  row values nor paths.
+
+| Code | Meaning |
+|---|---|
+| `0` | loaded and reconciled |
+| `1` | reconciliation failed: rolled back, RAW unchanged |
+| `2` | invalid input: `--source-file` not a `.csv` file name, missing file, unexpected header, row shape or `_source_file`, torn pair (several `_loaded_at` values, or counts or `source_file` that differ from `--summary-json`), missing or invalid summary, RAW table with other columns or constraints; RAW unchanged |
+| `3` | unexpected error, for example the database is open in another process (stderr shows only the exception type); rolled back |
+
 ## Test
 
 ```
@@ -210,9 +263,11 @@ uv run pytest -v
 
 ## Known limitations
 
-- **A2: publishing the pair is not atomic.** Staging and quarantine are published by two
-  consecutive `os.replace` calls. If the process dies between them, staging has the new
-  version and quarantine the previous one. Rerunning with the same `--run-ts` fixes it.
+- **A2: publishing the CSV pair is not atomic.** Staging and quarantine are published by
+  two consecutive `os.replace` calls. If the process dies between them, staging has the new
+  version and quarantine the previous one. Rerunning with the same `--run-ts` fixes it. Such
+  a pair never reaches RAW: the loader refuses it (exit 2, see [Load RAW](#load-raw-local-duckdb))
+  and replaces both tables in one transaction.
 - **A8: fully empty lines are ignored.** `csv.DictReader` skips blank lines, so they do not
   count toward the input nor the quarantine.
 - **T-026: the UTF-8 error position can be wrong above about 8 KB.** The position reported

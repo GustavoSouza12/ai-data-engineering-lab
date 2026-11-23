@@ -15,10 +15,6 @@ flags:
   send_anonymous_usage_stats: false
 
 vars:
-  # Folder with the validated CSVs written by ingestion/validate_orders.py.
-  # Relative paths resolve against the directory dbt runs from (transform/).
-  # MVP-06 switches this source to Snowflake/DuckDB RAW.
-  orders_staging_dir: "../data/staging/orders"
   # T3 (ADR-0017): semantic tests warn on any failure and only error above this
   # many failing rows, so the three planted errors stay visible in gold.
   semantic_error_threshold: 10

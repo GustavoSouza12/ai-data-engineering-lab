@@ -1,9 +1,9 @@
-"""Integration tests for the dbt-duckdb project (F0.2a, MVP-02: TS-025, TS-026).
+"""Integration tests for the dbt-duckdb project (F0.2a, MVP-02: TS-025, TS-026; MVP-06).
 
-Each scenario runs the real validator on raw CSVs into a temporary staging
-folder, then ``dbt build`` on a temporary DuckDB file, with dbt's target and
-log folders also under the temporary directory. Nothing is written to the
-worktree.
+Each scenario runs the real validator on raw CSVs into temporary staging and
+quarantine folders, the real RAW loader into a temporary DuckDB file, then
+``dbt build`` on that same file, with dbt's target and log folders also under
+the temporary directory. Nothing is written to the worktree.
 """
 
 from __future__ import annotations
@@ -53,32 +53,26 @@ class Build:
             return con.execute(sql).fetchall()
 
 
-def _validate(raw_files: list[Path], staging_dir: Path, quarantine_dir: Path) -> None:
+def _validate_and_load(
+    raw_files: list[Path], staging_dir: Path, quarantine_dir: Path, database: Path
+) -> None:
+    dirs = ["--staging-dir", str(staging_dir), "--quarantine-dir", str(quarantine_dir)]
     for raw in raw_files:
-        subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "ingestion.validate_orders",
-                "--input",
-                str(raw),
-                "--run-ts",
-                RUN_TS,
-                "--staging-dir",
-                str(staging_dir),
-                "--quarantine-dir",
-                str(quarantine_dir),
-            ],
-            cwd=REPO_ROOT,
-            check=True,
-            capture_output=True,
-        )
+        for step in (
+            ["ingestion.validate_orders", "--input", str(raw), "--run-ts", RUN_TS],
+            ["ingestion.load_raw", "--source-file", raw.name, "--database", str(database)],
+        ):
+            subprocess.run(
+                [sys.executable, "-m", *step, *dirs],
+                cwd=REPO_ROOT,
+                check=True,
+                capture_output=True,
+            )
 
 
 def _build(tmp: Path, raw_files: list[Path]) -> Build:
-    staging = tmp / "staging"
-    _validate(raw_files, staging, tmp / "quarantine")
     database = tmp / "lab_test.duckdb"
+    _validate_and_load(raw_files, tmp / "staging", tmp / "quarantine", database)
     target_dir = tmp / "target"
     # A subprocess, not dbtRunner: dbt-duckdb keeps its connection open in the
     # calling process, which would block the read-only connections below.
@@ -96,8 +90,6 @@ def _build(tmp: Path, raw_files: list[Path]) -> Build:
             str(target_dir),
             "--log-path",
             str(tmp / "logs"),
-            "--vars",
-            json.dumps({"orders_staging_dir": str(staging)}),
         ],
         cwd=PROJECT_DIR,
         env={**os.environ, "LAB_DUCKDB_PATH": str(database)},
@@ -154,6 +146,13 @@ def test_planted_semantic_errors_stay_in_gold(sample_build: Build):
         " where order_id in ('ORD-00047', 'ORD-00123', 'ORD-00084') order by order_id"
     )
     assert rows == [("ORD-00047",), ("ORD-00084",), ("ORD-00123",)]
+
+
+def test_raw_layer_holds_the_sample_as_received(sample_build: Build):
+    rows = sample_build.query(
+        "select (select count(*) from raw.orders), (select count(*) from raw.orders_quarantine)"
+    )
+    assert rows == [(272, 12)]
 
 
 def test_stg_orders_trims_before_deduplicating(sample_build: Build):
@@ -231,16 +230,19 @@ def test_every_column_has_pii_level_and_gold_has_owner(sample_build: Build):
     with duckdb.connect(str(sample_build.database), read_only=True) as con:
         for node in nodes:
             documented = node["columns"]
-            if node["resource_type"] != "source":
-                actual = {
-                    row[0]
-                    for row in con.execute(
-                        "select column_name from information_schema.columns"
-                        " where table_schema = ? and table_name = ?",
-                        [node["schema"], node["alias"]],
-                    ).fetchall()
-                }
-                assert actual == set(documented), node["name"]
+            # Sources are real RAW tables since MVP-06: their columns are checked too, so a
+            # column added to RAW without a pii_level fails here (C5).
+            table = node["identifier"] if node["resource_type"] == "source" else node["alias"]
+            actual = {
+                row[0]
+                for row in con.execute(
+                    "select column_name from information_schema.columns"
+                    " where table_schema = ? and table_name = ?",
+                    [node["schema"], table],
+                ).fetchall()
+            }
+            assert actual, node["name"]
+            assert actual == set(documented), node["name"]
             for column in documented.values():
                 assert column["meta"].get("pii_level") in PII_LEVELS, (
                     node["name"],
