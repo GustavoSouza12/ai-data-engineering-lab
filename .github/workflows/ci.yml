@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6.4.3
+        with:
+          enable-cache: true
+      - name: uv sync
+        run: uv sync --frozen
+      - name: ruff
+        run: uv run ruff check .
+      - name: sqlfluff
+        run: uv run sqlfluff lint transform/models
+      - name: pytest
+        run: uv run pytest
+      - name: generate and validate the sample
+        run: |
+          uv run python -m ingestion.generate_orders --output data/raw/orders/orders_2026-11-19.csv
+          git diff --exit-code -- data/raw
+          uv run python -m ingestion.validate_orders --input data/raw/orders/orders_2026-11-19.csv --run-ts 2026-11-19T03:00:00Z
+      - name: dbt deps, parse, build (DuckDB dev)
+        working-directory: transform
+        run: |
+          uv run dbt deps --profiles-dir . --target dev
+          uv run dbt parse --profiles-dir . --target dev
+          uv run dbt build --profiles-dir . --target dev

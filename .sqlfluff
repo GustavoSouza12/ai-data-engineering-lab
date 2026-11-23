@@ -1,0 +1,11 @@
+[sqlfluff]
+dialect = duckdb
+templater = jinja
+max_line_length = 100
+# AM04/ST06: models use `select *` CTEs and contract column order on purpose.
+# ST09/LT02: the existing join and Jinja-loop layout is kept; no model rewrites.
+exclude_rules = AM04, ST06, ST09, LT02
+
+[sqlfluff:templater:jinja]
+apply_dbt_builtins = True
+load_macros_from_path = transform/macros
