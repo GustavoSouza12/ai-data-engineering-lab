@@ -213,7 +213,7 @@ def test_default_daily_files_have_no_cross_file_conflict(files):
         assert len({_key(r) for r in rows}) == len(rows)
 
 
-def test_flag_only_adds_the_conflict_to_the_first_daily_file(files, conflict_files):
+def test_flag_adds_one_row_to_the_first_daily_file(files, conflict_files):
     # Same rng draws up to the conflict, which is the last step of a daily file. Later files
     # differ because the conflicted order is frozen.
     default_rows, planted_rows = files[1][1], conflict_files[1][1]

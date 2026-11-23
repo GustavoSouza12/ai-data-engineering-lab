@@ -24,13 +24,14 @@ vars:
   semantic_error_threshold: 10
   # assert_no_cross_file_conflicting_versions (TS-026, ADR-0009 amendment of
   # 2026-11-23): a conflicted order leaves gold for dq_orders_cross_file_conflicts,
-  # so the test warns from the first conflicted order and errors only above the
-  # threshold, the T3 pattern. The severity must stay error for error_if to apply
-  # (dbt ignores error_if at severity warn).
+  # so the test warns from the first conflicted order of the newest batch and
+  # errors only above the threshold, the T3 pattern. The severity must stay error
+  # for error_if to apply (dbt ignores error_if at severity warn).
   cross_file_conflict_severity: error
-  # More conflicted orders than this in one build means the source's versioning is
-  # broken, not one bad order. One conflicted order never trips it, and neither
-  # do the 10 that --plant-cross-file-conflict plants over 10 daily files.
+  # Per batch, not cumulative: only conflicted orders with an occurrence in the
+  # newest daily file count. More than this many in one batch means the source's
+  # versioning is broken, not one bad order. One conflicted order never trips it,
+  # and a long --plant-cross-file-conflict chain (one per daily file) stays at warn.
   cross_file_conflict_error_threshold: 10
 
 models:

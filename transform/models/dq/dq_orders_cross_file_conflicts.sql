@@ -6,6 +6,12 @@
   duplicates, including copies of a version in several files, so any key that
   is still repeated has different content. No occurrence is picked as the
   winner: int_orders__latest leaves the whole order out of gold.
+
+  Invariant: every key here spans more than one _source_file, because the
+  validator quarantines a conflict inside one file. The model does not filter
+  on count(distinct _source_file) > 1 on purpose: an in-file conflict that
+  bypassed validation would then reach int_orders__latest and be resolved
+  silently; here it is quarantined like the others.
 -#}
 with orders as (
 

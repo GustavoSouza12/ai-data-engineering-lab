@@ -68,13 +68,17 @@ current one. The other orders publish normally.
 | TS-019 | `int_orders__latest.order_id` unique and not null; `assert_int_orders__latest_is_latest_version` (latest version of every order without a cross-file conflict, no conflicted order) | error |
 | TS-020 | `fct_orders.organization_id` -> `organizations`; `assert_every_order_has_fx_rate` | error |
 | TS-021 | `org_summary.organization_id` unique and not null; `assert_org_summary_reconciles_with_gold` (20 organizations, totals = gold) | error |
-| TS-026 | `assert_no_cross_file_conflicting_versions` (ADR-0009 amendment): one row per order in `dq_orders_cross_file_conflicts` | T3, threshold `cross_file_conflict_error_threshold` |
+| TS-026 | `assert_no_cross_file_conflicting_versions` (ADR-0009 amendment): one row per order in `dq_orders_cross_file_conflicts` with an occurrence in the newest daily file | T3, threshold `cross_file_conflict_error_threshold` per batch |
 
-The cross-file conflict test follows T3: it warns from the first conflicted order and
-errors only above `cross_file_conflict_error_threshold` conflicted orders (var, default 10:
-one conflicted order never trips it; more than 10 in one build means the source's
-versioning is broken). Its failures are stored like the others. `cross_file_conflict_severity`
-stays `error`, because dbt applies `error_if` only at severity `error`.
+The cross-file conflict test follows T3, per batch: it counts only the conflicted orders
+with an occurrence in the newest daily file (latest `_source_file_date`), warns from the
+first one and errors only above `cross_file_conflict_error_threshold` of them (var,
+default 10: one conflicted order never trips it; more than 10 in one batch means the
+source's versioning is broken). Conflicts brought by earlier batches stay in
+`dq_orders_cross_file_conflicts` and out of gold but no longer count, so a long chain of
+daily files with one conflict each stays at warn. Its failures are stored like the
+others. `cross_file_conflict_severity` stays `error`, because dbt applies `error_if` only
+at severity `error`.
 
 Seeds are tested too (keys, accepted values, `rate_to_usd > 0`).
 
@@ -101,7 +105,8 @@ repository) and check the counts above, the stored failures, `amount_usd`, the g
 metadata and, with the two-file fixture in `integration_tests/fixtures/cross_file_conflict/`,
 that a conflict across daily files warns, sends both occurrences to
 `dq_orders_cross_file_conflicts`, leaves that order out of gold and publishes the others,
-and that it fails the build when the threshold is set to 0.
+that it fails the build when the threshold is set to 0, and that a chain of 13 files
+generated with `--plant-cross-file-conflict` (12 conflicted orders) stays at warn.
 
 ## Governance
 

@@ -333,6 +333,7 @@ Every control point chooses between two errors: publishing wrong data (permissiv
 models/
   staging/        stg_<source>__<table>   views, cast + rename + known dedup
   intermediate/   int_order_events_sequenced, int_fund_classification_mapped
+  dq/             dq_orders_cross_file_conflicts (quarantine of cross-file version conflicts, ADR-0009)
   gold/
     orders/       fct_orders, fct_order_events, fct_sponsor_reviews (NIGO)
     funds/        dim_fund (official taxonomy), fct_fund_completeness

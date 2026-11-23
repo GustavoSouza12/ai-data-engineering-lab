@@ -20,6 +20,8 @@ from pathlib import Path
 import duckdb
 import pytest
 
+from ingestion import generate_orders
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PROJECT_DIR = REPO_ROOT / "transform"
 SAMPLE_RAW = REPO_ROOT / "data" / "raw" / "orders" / "orders_2026-11-19.csv"
@@ -328,6 +330,35 @@ def test_cross_file_conflict_leaves_gold_and_the_others_publish(conflict_build: 
         "select sum(order_count) from main.org_summary where organization_id = 'ORG-001'"
     )
     assert totals == [(0,)]
+
+
+def test_long_flagged_chain_stays_at_warn(tmp_path: Path):
+    # The threshold is per batch (ADR-0009 amendment): 12 daily files with one conflict
+    # each give 12 conflicted orders in total, above the threshold of 10, but only the
+    # conflict that involves the newest file counts. TS-020 is not checked here: the
+    # fx_rates seed does not cover the dates of later daily files.
+    raw = tmp_path / "raw"
+    n_files = 13
+    argv = ["--days", str(n_files), "--output-dir", str(raw), "--plant-cross-file-conflict"]
+    assert generate_orders.main(argv) == 0
+    raw_files = sorted(raw.glob("orders_*.csv"))
+    assert len(raw_files) == n_files
+    build = _build(tmp_path, raw_files)
+    assert build.statuses[CONFLICT_TEST] == "warn"
+    conflicted = build.query(f"select count(distinct order_id) from main.{CONFLICT_MODEL}")
+    assert conflicted == [(n_files - 1,)]
+    assert n_files - 1 > 10  # above the default threshold if it were cumulative
+    newest = build.query(
+        f'select order_id, n_source_files, source_files from {AUDIT_SCHEMA}."{CONFLICT_TEST}"'
+    )
+    assert len(newest) == 1
+    assert newest[0][1] == 2
+    assert newest[0][2].endswith(raw_files[-1].name)
+    in_gold = build.query(
+        "select count(*) from main.int_orders__latest"
+        f" where order_id in (select order_id from main.{CONFLICT_MODEL})"
+    )
+    assert in_gold == [(0,)]
 
 
 def test_cross_file_conflicts_above_the_threshold_fail_the_build(tmp_path: Path):

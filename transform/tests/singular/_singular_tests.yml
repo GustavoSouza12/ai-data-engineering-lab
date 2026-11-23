@@ -2,7 +2,7 @@ version: 2
 
 data_tests:
   - name: assert_no_cross_file_conflicting_versions
-    description: TS-026, orders with the same (order_id, updated_at) and different content in different daily files; warns per conflicted order (ADR-0009 amendment, T3).
+    description: TS-026, orders with the same (order_id, updated_at) and different content in different daily files, brought by the newest batch; warns per conflicted order, errors above a per-batch threshold (ADR-0009 amendment, T3).
   - name: assert_int_orders__latest_is_latest_version
     description: TS-019, int_orders__latest keeps the latest updated_at of each order without a cross-file conflict, and no conflicted order.
   - name: assert_orders_reconcile_latest_to_gold
