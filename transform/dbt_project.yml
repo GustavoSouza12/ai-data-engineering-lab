@@ -22,6 +22,10 @@ vars:
   # T3 (ADR-0017): semantic tests warn on any failure and only error above this
   # many failing rows, so the three planted errors stay visible in gold.
   semantic_error_threshold: 10
+  # Severity of assert_no_cross_file_conflicting_versions (ADR-0009: no silent
+  # resolution). How gold treats a cross-file conflict is pending the owner's
+  # decision; this var is the single place to change the severity.
+  cross_file_conflict_severity: error
 
 models:
   lab_transform:

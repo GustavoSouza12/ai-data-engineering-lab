@@ -4,7 +4,11 @@
   (ADR-0009), but it sees one file at a time. stg_orders has already removed
   exact duplicates, including copies of a version in several files, so any
   key that is still repeated has different content.
+  The severity comes from var('cross_file_conflict_severity') (default error);
+  the final gold policy for these conflicts is pending the owner's decision.
 -#}
+{{ config(severity=var('cross_file_conflict_severity')) }}
+
 select
     order_id,
     updated_at,
