@@ -2,9 +2,9 @@ version: 2
 
 data_tests:
   - name: assert_no_cross_file_conflicting_versions
-    description: Same (order_id, updated_at) with different content in different daily files (ADR-0009).
+    description: TS-026, orders with the same (order_id, updated_at) and different content in different daily files; warns per conflicted order (ADR-0009 amendment, T3).
   - name: assert_int_orders__latest_is_latest_version
-    description: TS-019, int_orders__latest keeps the latest updated_at of each order.
+    description: TS-019, int_orders__latest keeps the latest updated_at of each order without a cross-file conflict, and no conflicted order.
   - name: assert_orders_reconcile_latest_to_gold
     description: TS-011, count and amount sum per currency match between int_orders__latest and fct_orders.
   - name: assert_every_order_has_fx_rate

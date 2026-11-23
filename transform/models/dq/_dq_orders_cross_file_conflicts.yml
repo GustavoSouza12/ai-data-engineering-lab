@@ -1,0 +1,63 @@
+version: 2
+
+models:
+  - name: dq_orders_cross_file_conflicts
+    description: >
+      Quarantine of cross-file version conflicts (ADR-0009, amendment 2026-11-23): every
+      occurrence of a version key (order_id, updated_at) with different content in
+      different daily files, with the file it came from. An order with any row here is
+      left out of int_orders__latest and therefore out of gold; the other orders publish.
+    config:
+      meta:
+        owner: data-engineering
+    columns:
+      - name: order_id
+        description: Order key of the conflicting version.
+        meta: {pii_level: internal}
+        data_tests:
+          - not_null:
+              name: dq_orders_cross_file_conflicts_order_id_not_null
+      - name: organization_id
+        description: Organization in this occurrence.
+        meta: {pii_level: internal}
+      - name: investor_id
+        description: Synthetic investor key in this occurrence.
+        meta: {pii_level: internal}
+      - name: fund_id
+        description: Synthetic fund key in this occurrence.
+        meta: {pii_level: internal}
+      - name: amount
+        description: Order amount in this occurrence, in its original currency.
+        meta: {pii_level: confidential}
+      - name: currency
+        description: Currency of amount.
+        meta: {pii_level: internal}
+      - name: channel
+        description: Channel in this occurrence.
+        meta: {pii_level: internal}
+      - name: status
+        description: Status in this occurrence.
+        meta: {pii_level: internal}
+      - name: submitted_at
+        description: When the order was submitted (UTC), in this occurrence.
+        meta: {pii_level: internal}
+      - name: updated_at
+        description: Version timestamp shared by every occurrence of the conflicting key (UTC).
+        meta: {pii_level: internal}
+      - name: _source_file
+        description: Daily file this occurrence came from.
+        meta: {pii_level: internal}
+      - name: _source_file_date
+        description: Date in the daily file name.
+        meta: {pii_level: internal}
+      - name: _loaded_at
+        description: When ingestion loaded the file (UTC).
+        meta: {pii_level: internal}
+      - name: reject_reason
+        description: Always conflicting_version_cross_file.
+        meta: {pii_level: internal}
+        data_tests:
+          - accepted_values:
+              name: dq_orders_cross_file_conflicts_reject_reason_accepted
+              arguments:
+                values: ["conflicting_version_cross_file"]

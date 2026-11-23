@@ -4,6 +4,8 @@ models:
   - name: int_orders__latest
     description: >
       Current version of each order: the row with the latest updated_at (ADR-0009).
+      Orders with a cross-file version conflict are left out and kept in
+      dq_orders_cross_file_conflicts (ADR-0009, amendment 2026-11-23).
       Every order metric starts here, never from staging directly.
     config:
       meta:
