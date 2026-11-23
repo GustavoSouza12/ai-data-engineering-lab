@@ -111,7 +111,7 @@ def test_cli_rejects_invalid_arguments(argv, tmp_path, capsys):
 
 
 def test_daily_files_have_the_documented_counts(files):
-    for file_date, rows, earlier, previous in _daily(files):
+    for file_date, rows, earlier, _previous in _daily(files):
         assert len(rows) == go.N_DAILY_ROWS
         assert list(rows[0]) == list(vo.REQUIRED_COLUMNS)
         new_ids = {r["order_id"] for r in rows} - {r["order_id"] for r in earlier}
