@@ -188,7 +188,7 @@ def test_fx_rates_cover_every_sample_date_and_currency(sample_build: Build):
         "select min(rate_date)::varchar, max(rate_date)::varchar, count(*),"
         " count(distinct currency) from main.fx_rates"
     )
-    assert rows == [("2026-11-01", "2026-11-12", 36, 3)]
+    assert rows == [("2026-11-01", "2026-12-31", 183, 3)]
     assert sample_build.statuses["assert_every_order_has_fx_rate"] == "pass"
 
 
