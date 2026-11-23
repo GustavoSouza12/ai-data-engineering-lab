@@ -34,7 +34,7 @@ data/staging/orders/*.csv (source orders_staging.orders, every column as text)
   -> int_orders__latest    view   one row per order_id, latest updated_at (ADR-0009)
   -> fct_orders            table  + rate_to_usd and amount_usd at the submitted_at date (ADR-0013)
   -> org_summary           view   marts/internal, one row per organization (seed), USD only
-seeds: organizations (ORG-001 to ORG-020), fx_rates (2026-11-01 to 2026-11-12, USD/EUR/BRL)
+seeds: organizations (ORG-001 to ORG-020), fx_rates (2026-11-01 to 2026-12-31, USD/EUR/BRL)
 ```
 
 The source reads every `*.csv` in the staging folder, so validated files of several days
@@ -65,6 +65,10 @@ exclusion or quarantine logic for it.
 
 Seeds are tested too (keys, accepted values, `rate_to_usd > 0`).
 
+`fx_rates` covers 2026-11-01 to 2026-12-31: the sample's dates plus every daily file date the
+generator writes up to 2026-12-31. It is extended by `ingestion/generate_fx_rates.py` (see
+`ingestion/README.md`); an order submitted after 2026-12-31 fails TS-020.
+
 ### Semantic tests (ADR-0017, T3)
 
 The three planted semantic errors stay in gold. Their tests warn from the first failing row
@@ -87,6 +91,12 @@ They cover TS-025 and TS-026. They run the validator and `dbt build` into a temp
 repository) and check the counts above, the stored failures, `amount_usd`, the governance
 metadata and, with the two-file fixture in `integration_tests/fixtures/cross_file_conflict/`,
 that a conflict across daily files fails the build.
+
+`test_local_pipeline.py` runs the whole local chain on the sample plus the next two daily
+files: generator -> validator `--summary-json` -> batch guard -> `dbt build --target dev`. It
+expects exit 0, TS-020 passing for the daily files' new orders, and only the three T3
+warnings plus the cross-file conflict test, which it lowers to `warn` because every daily
+file plants one conflict (ADR-0009).
 
 ## Governance
 

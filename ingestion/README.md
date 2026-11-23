@@ -202,6 +202,25 @@ The sample passes: 12/284 = 4.2%. The decision itself is the pure function
 | `2` | invalid input: missing summary, invalid JSON, counts that are missing, negative, not reconciled or inconsistent, limit outside 0 to 1 |
 | `3` | unexpected error (stderr shows only the exception type) |
 
+## Exchange rates (`fx_rates` seed, ADR-0013)
+
+New orders of a daily file are submitted on the file date, and dbt converts every order at
+the rate of its `submitted_at` date (TS-020). `ingestion/generate_fx_rates.py` keeps the
+synthetic seed `transform/seeds/fx_rates.csv` long enough for that: the hand-written base
+period (2026-11-01 to 2026-11-12) stays byte for byte, and every later day up to
+`HORIZON_END` (2026-12-31) is a deterministic random walk from the 2026-11-12 rates
+(`random.Random(2026)`, small daily moves inside fixed bands). No market data, no network.
+
+```
+uv run python -m ingestion.generate_fx_rates           # rewrite the seed
+uv run python -m ingestion.generate_fx_rates --check   # exit 1 if the seed is stale
+```
+
+The horizon covers every file date from 2026-11-19 to 2026-12-31, which includes the MVP-10
+backfill dates (TS-037). An order file dated after 2026-12-31 has orders without a rate and
+`dbt build` fails on `assert_every_order_has_fx_rate`, which lists each such order with its
+currency and date. To go further, move `HORIZON_END` and rerun the script.
+
 ## Test
 
 ```
